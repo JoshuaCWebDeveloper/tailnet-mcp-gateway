@@ -1,0 +1,9 @@
+.env
+ssh/*
+!ssh/.gitkeep
+work/*
+!work/.gitkeep
+tailscale-state/*
+!tailscale-state/.gitkeep
+*.log
+.DS_Store
