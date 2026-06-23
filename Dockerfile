@@ -21,6 +21,7 @@ WORKDIR /src/terminal_mcp
 RUN git clone --depth=1 https://github.com/iris-networks/terminal_mcp.git .
 RUN make build
 RUN test -x ./mcp-terminal-server
+RUN mkdir -p /out
 RUN cp ./mcp-terminal-server /out/mcp-terminal-server
 
 FROM debian:bookworm-slim AS runtime
