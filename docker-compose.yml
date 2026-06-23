@@ -1,0 +1,33 @@
+services:
+  openai-tailscale-terminal-mcp:
+    build: .
+    container_name: openai-tailscale-terminal-mcp
+    restart: unless-stopped
+
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+
+    devices:
+      - /dev/net/tun:/dev/net/tun
+
+    environment:
+      TS_AUTHKEY: ${TS_AUTHKEY}
+      TS_HOSTNAME: ${TS_HOSTNAME:-openai-terminal-mcp-gateway}
+      TS_STATE_DIR: /var/lib/tailscale
+      TS_EXTRA_ARGS: ${TS_EXTRA_ARGS:-}
+
+      CONTROL_PLANE_TUNNEL_ID: ${CONTROL_PLANE_TUNNEL_ID}
+      CONTROL_PLANE_API_KEY: ${CONTROL_PLANE_API_KEY}
+
+      MCP_SHELL: ${MCP_SHELL:-/bin/bash}
+      MCP_COMMAND_TIMEOUT: ${MCP_COMMAND_TIMEOUT:-300}
+      TUNNEL_HEALTH_ADDR: ${TUNNEL_HEALTH_ADDR:-0.0.0.0:8080}
+
+    volumes:
+      - ./tailscale-state:/var/lib/tailscale
+      - ./ssh:/root/.ssh:ro
+      - ./work:/work
+
+    ports:
+      - "8080:8080"
