@@ -1,6 +1,8 @@
 # syntax=docker/dockerfile:1
 
-FROM golang:1.23-bookworm AS tunnel-builder
+ARG GO_VERSION=1.26.2
+
+FROM golang:${GO_VERSION}-bookworm AS tunnel-builder
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     git \
@@ -9,7 +11,7 @@ WORKDIR /src/tunnel-client
 RUN git clone --depth=1 https://github.com/openai/tunnel-client.git .
 RUN go build -o /out/tunnel-client ./cmd/client
 
-FROM golang:1.23-bookworm AS terminal-builder
+FROM golang:${GO_VERSION}-bookworm AS terminal-builder
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     git \
