@@ -20,9 +20,10 @@ ssh user@100.x.y.z "df -h"
 
 ## Install
 
+Clone the repository, then inside the repository:
+
 ```bash
 cp .env.example .env
-mkdir -p ssh work tailscale-state
 ```
 
 Edit `.env` and set:
