@@ -104,3 +104,8 @@ machine_tools_log "running install script in container"
 # Intentionally split prefixes/target so callers can provide shell-style command fragments.
 # shellcheck disable=SC2086
 ${EXEC_PREFIX} ${TARGET} "${REMOTE_DIR}/install.sh" "${INSTALL_ARGS[@]}"
+
+machine_tools_log "running start script in container"
+# Intentionally split prefixes/target so callers can provide shell-style command fragments.
+# shellcheck disable=SC2086
+${EXEC_PREFIX} ${TARGET} "${REMOTE_DIR}/start.sh"
