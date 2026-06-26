@@ -9,6 +9,7 @@ TARGET=""
 EXEC_PREFIX=""
 CP_PREFIX=""
 REMOTE_DIR="/tmp/machine-tools"
+ENTRYPOINT_SCRIPT=""
 INSTALL_ARGS=()
 
 usage() {
@@ -24,6 +25,7 @@ Options:
                              Example: "docker cp"
                              Example: "kubectl cp"
   --remote-dir PATH          Destination directory in the container. Default: ${REMOTE_DIR}
+  --entrypoint PATH          Entry point script to pass through to install.sh.
   -h, --help                 Show this help.
 
 Defaults:
@@ -78,6 +80,10 @@ while [ "$#" -gt 0 ]; do
       ;;
   esac
 done
+
+if [ -n "${ENTRYPOINT_SCRIPT}" ]; then
+  INSTALL_ARGS+=(--entrypoint "${ENTRYPOINT_SCRIPT}")
+fi
 
 if [ -z "${TARGET}" ]; then
   machine_tools_log "ERROR: provide --target"
