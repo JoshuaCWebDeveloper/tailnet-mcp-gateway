@@ -18,18 +18,16 @@ if pgrep -x tailscaled >/dev/null 2>&1; then
 fi
 
 machine_tools_log "starting tailscaled in userspace networking mode"
-if [ "$(id -u)" -eq 0 ]; then
-  nohup tailscaled \
-    --tun=userspace-networking \
-    --socks5-server=127.0.0.1:1055 \
-    --outbound-http-proxy-listen=127.0.0.1:1055 \
-    --state=/var/lib/tailscale/tailscaled.state \
-    > /tmp/tailscaled.log 2>&1 < /dev/null &
-else
-  nohup sudo tailscaled \
-    --tun=userspace-networking \
-    --socks5-server=127.0.0.1:1055 \
-    --outbound-http-proxy-listen=127.0.0.1:1055 \
-    --state=/var/lib/tailscale/tailscaled.state \
-    > /tmp/tailscaled.log 2>&1 < /dev/null &
+tailscaled_cmd=(
+  tailscaled
+  --tun=userspace-networking
+  --socks5-server=127.0.0.1:1055
+  --outbound-http-proxy-listen=127.0.0.1:1055
+  --state=/var/lib/tailscale/tailscaled.state
+)
+
+if [ "$(id -u)" -ne 0 ]; then
+  tailscaled_cmd=(sudo "${tailscaled_cmd[@]}")
 fi
+
+nohup "${tailscaled_cmd[@]}" > /tmp/tailscaled.log 2>&1 < /dev/null &
