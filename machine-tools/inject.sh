@@ -64,6 +64,10 @@ while [ "$#" -gt 0 ]; do
       REMOTE_DIR="${2:-}"
       shift 2
       ;;
+    --entrypoint)
+      ENTRYPOINT_SCRIPT="${2:-}"
+      shift 2
+      ;;
     --)
       shift
       INSTALL_ARGS=("$@")
