@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
-	"mcp-terminal-server/internal/config"
+	"mcp-terminal-server/terminal_mcp/config"
 )
 
 // ShellSession represents a persistent shell session
