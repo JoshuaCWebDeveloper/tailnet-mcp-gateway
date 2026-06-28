@@ -14,6 +14,7 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"mcp-terminal-server/config"
+	"mcp-terminal-server/remote"
 )
 
 // ShellSession represents a persistent shell session
@@ -25,6 +26,7 @@ type ShellSession struct {
 	Stderr      io.ReadCloser
 	WorkingDir  string
 	Shell       string
+	Remote      remote.Spec
 	Created     time.Time
 	LastUsed    time.Time
 	mu          sync.Mutex
@@ -51,12 +53,20 @@ func NewManager(cfg *config.Config) *Manager {
 }
 
 // GetOrCreateSession gets an existing session or creates a new one
-func (sm *Manager) GetOrCreateSession(sessionID string, shell string) (*ShellSession, error) {
+func (sm *Manager) GetOrCreateSession(sessionID string, shell string, remoteRaw string) (*ShellSession, error) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
+	remoteSpec, err := remote.Parse(remoteRaw)
+	if err != nil {
+		return nil, err
+	}
+
 	// Check if session exists
 	if session, exists := sm.sessions[sessionID]; exists {
+		if session.Remote.Raw != remoteSpec.Raw {
+			return nil, fmt.Errorf("session %s already exists with a different remote target", sessionID)
+		}
 		session.LastUsed = time.Now()
 		return session, nil
 	}
@@ -66,12 +76,20 @@ func (sm *Manager) GetOrCreateSession(sessionID string, shell string) (*ShellSes
 		shell = sm.config.Shell
 	}
 
-	cmd := exec.Command(shell)
+	var cmd *exec.Cmd
+	if remoteSpec.Raw != "" {
+		sshArgs, err := remoteSpec.SSHArgs()
+		if err != nil {
+			return nil, err
+		}
+		cmd = exec.Command("ssh", sshArgs...)
+	} else {
+		cmd = exec.Command(shell)
+	}
 
 	// Set up environment variables
-	cmd.Env = os.Environ() // Start with current environment
+	cmd.Env = os.Environ()
 	if sm.config.Display != "" {
-		// Add or update DISPLAY variable
 		cmd.Env = append(cmd.Env, "DISPLAY="+sm.config.Display)
 	}
 
@@ -93,7 +111,6 @@ func (sm *Manager) GetOrCreateSession(sessionID string, shell string) (*ShellSes
 		return nil, fmt.Errorf("failed to create stderr pipe: %v", err)
 	}
 
-	// Start the shell
 	if err := cmd.Start(); err != nil {
 		stdin.Close()
 		stdout.Close()
@@ -109,20 +126,21 @@ func (sm *Manager) GetOrCreateSession(sessionID string, shell string) (*ShellSes
 		Stderr:     stderr,
 		WorkingDir: "",
 		Shell:      shell,
+		Remote:     remoteSpec,
 		Created:    time.Now(),
 		LastUsed:   time.Now(),
 	}
 
 	sm.sessions[sessionID] = session
 
-	log.Printf("Created new shell session: %s (shell: %s, pid: %d)", sessionID, shell, cmd.Process.Pid)
+	log.Printf("Created new shell session: %s (shell: %s, remote: %s, pid: %d)", sessionID, shell, remoteSpec.Raw, cmd.Process.Pid)
 
 	return session, nil
 }
 
 // ExecuteCommand executes a command in a persistent shell session
-func (sm *Manager) ExecuteCommand(sessionID string, command string, timeout time.Duration, shell string, captureStderr bool) (*mcp.CallToolResult, error) {
-	session, err := sm.GetOrCreateSession(sessionID, shell)
+func (sm *Manager) ExecuteCommand(sessionID string, command string, timeout time.Duration, shell string, remoteRaw string, captureStderr bool) (*mcp.CallToolResult, error) {
+	session, err := sm.GetOrCreateSession(sessionID, shell, remoteRaw)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to get session: %v", err)), nil
 	}
@@ -130,9 +148,7 @@ func (sm *Manager) ExecuteCommand(sessionID string, command string, timeout time
 	session.mu.Lock()
 	defer session.mu.Unlock()
 
-	// Check if session is still alive
 	if session.Cmd.ProcessState != nil && session.Cmd.ProcessState.Exited() {
-		// Session died, remove it and create a new one
 		sm.mu.Lock()
 		delete(sm.sessions, sessionID)
 		sm.mu.Unlock()
@@ -140,17 +156,18 @@ func (sm *Manager) ExecuteCommand(sessionID string, command string, timeout time
 		return mcp.NewToolResultError("Shell session died, please retry"), nil
 	}
 
-	// Create a unique command marker
 	commandMarker := fmt.Sprintf("MCPCMD_%d", time.Now().UnixNano())
 
-	// Write command to shell
-	fullCommand := fmt.Sprintf("%s\necho %s_DONE\n", command, commandMarker)
+	commandToRun := command
+	if session.Remote.Raw != "" {
+		commandToRun = session.Remote.Command(command)
+	}
+	fullCommand := fmt.Sprintf("%s\necho %s_DONE\n", commandToRun, commandMarker)
 
 	if _, err := session.Stdin.Write([]byte(fullCommand)); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to write command: %v", err)), nil
 	}
 
-	// Read output with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
@@ -193,8 +210,15 @@ func (sm *Manager) ExecuteCommand(sessionID string, command string, timeout time
 			"timed_out":       false,
 		}
 
-		result := fmt.Sprintf("Command executed in persistent shell.\nOutput: %s\nSession ID: %s\nShell: %s (PID: %d)",
-			trimmedOutput, sessionID, session.Shell, session.Cmd.Process.Pid)
+		location := "local"
+		if session.Remote.Raw != "" {
+			location = "remote " + session.Remote.Target
+			if session.Remote.Path != "" {
+				location += " " + session.Remote.Path
+			}
+		}
+		result := fmt.Sprintf("Command executed in persistent shell on %s.\nOutput: %s\nSession ID: %s\nShell: %s (PID: %d)",
+			location, trimmedOutput, sessionID, session.Shell, session.Cmd.Process.Pid)
 
 		return mcp.NewToolResultStructured(structured, result), nil
 
@@ -237,11 +261,13 @@ func (sm *Manager) ListSessions() map[string]interface{} {
 	result := make(map[string]interface{})
 	for id, session := range sm.sessions {
 		result[id] = map[string]interface{}{
-			"shell":      session.Shell,
-			"created":    session.Created.Format(time.RFC3339),
-			"last_used":  session.LastUsed.Format(time.RFC3339),
-			"pid":        session.Cmd.Process.Pid,
-			"alive":      session.Cmd.ProcessState == nil || !session.Cmd.ProcessState.Exited(),
+			"shell":       session.Shell,
+			"created":     session.Created.Format(time.RFC3339),
+			"last_used":   session.LastUsed.Format(time.RFC3339),
+			"pid":         session.Cmd.Process.Pid,
+			"alive":       session.Cmd.ProcessState == nil || !session.Cmd.ProcessState.Exited(),
+			"remote":      session.Remote.Target,
+			"remote_path": session.Remote.Path,
 		}
 	}
 
@@ -259,7 +285,6 @@ func (sm *Manager) cleanupSessions() {
 			sm.mu.Lock()
 			now := time.Now()
 			for id, session := range sm.sessions {
-				// Remove sessions inactive for more than 30 minutes
 				if now.Sub(session.LastUsed) > 30*time.Minute {
 					log.Printf("Cleaning up inactive session: %s", id)
 					session.Stdin.Close()
