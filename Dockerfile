@@ -17,9 +17,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     make \
  && rm -rf /var/lib/apt/lists/*
-WORKDIR /src
-COPY go.mod go.sum Makefile ./
-COPY terminal_mcp/ ./terminal_mcp/
+WORKDIR /src/terminal_mcp
+COPY terminal_mcp/ ./
 RUN make build
 RUN test -x ./mcp-terminal-server
 RUN mkdir -p /out

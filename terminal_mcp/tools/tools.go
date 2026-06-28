@@ -7,9 +7,9 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
-	"mcp-terminal-server/terminal_mcp/config"
-	"mcp-terminal-server/terminal_mcp/executor"
-	"mcp-terminal-server/terminal_mcp/session"
+	"mcp-terminal-server/config"
+	"mcp-terminal-server/executor"
+	"mcp-terminal-server/session"
 )
 
 // Registry holds all the tools and their dependencies

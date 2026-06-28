@@ -5,10 +5,10 @@ import (
 	"log"
 
 	"github.com/mark3labs/mcp-go/server"
-	"mcp-terminal-server/terminal_mcp/config"
-	"mcp-terminal-server/terminal_mcp/executor"
-	"mcp-terminal-server/terminal_mcp/session"
-	"mcp-terminal-server/terminal_mcp/tools"
+	"mcp-terminal-server/config"
+	"mcp-terminal-server/executor"
+	"mcp-terminal-server/session"
+	"mcp-terminal-server/tools"
 )
 
 func main() {

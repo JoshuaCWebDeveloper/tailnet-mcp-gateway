@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
-	"mcp-terminal-server/terminal_mcp/config"
+	"mcp-terminal-server/config"
 )
 
 // Executor handles non-persistent command execution
