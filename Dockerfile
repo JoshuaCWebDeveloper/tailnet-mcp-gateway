@@ -18,7 +18,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     make \
  && rm -rf /var/lib/apt/lists/*
 WORKDIR /src/terminal_mcp
-RUN git clone --depth=1 https://github.com/iris-networks/terminal_mcp.git .
+COPY terminal_mcp/ ./
 RUN make build
 RUN test -x ./mcp-terminal-server
 RUN mkdir -p /out
