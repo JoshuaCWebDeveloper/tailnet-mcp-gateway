@@ -1,10 +1,13 @@
-.PHONY: build clean test
+.PHONY: build clean deps test
 
-build:
+build: deps
 	go build -o mcp-terminal-server
+
+deps:
+	go mod tidy
 
 clean:
 	rm -f mcp-terminal-server
 
-test:
+test: deps
 	go test ./...
