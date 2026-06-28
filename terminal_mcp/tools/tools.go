@@ -41,7 +41,10 @@ func (r *Registry) RegisterTools(s *server.MCPServer) {
 			mcp.Description("Timeout in seconds (optional, defaults to 30)"),
 		),
 		mcp.WithString("shell",
-			mcp.Description("Shell to use for execution (optional, defaults to system shell)"),
+			mcp.Description("Shell to use for local execution (optional, defaults to system shell)"),
+		),
+		mcp.WithString("remote",
+			mcp.Description("Optional SSH remote target in the form [user@]host[:port][/path]. When set, execute the command on the remote host instead of locally. If /path is supplied, cd to that path before running the command."),
 		),
 		mcp.WithBoolean("capture_stderr",
 			mcp.Description("Whether to capture stderr separately (optional, defaults to false)"),
@@ -64,7 +67,10 @@ func (r *Registry) RegisterTools(s *server.MCPServer) {
 			mcp.Description("Timeout in seconds (optional, defaults to 30)"),
 		),
 		mcp.WithString("shell",
-			mcp.Description("Shell to use for execution (optional, defaults to system shell)"),
+			mcp.Description("Shell to use for local sessions (optional, defaults to system shell)"),
+		),
+		mcp.WithString("remote",
+			mcp.Description("Optional SSH remote target in the form [user@]host[:port][/path]. When set, maintain the persistent session over SSH. If /path is supplied, cd to that path before each command."),
 		),
 		mcp.WithRawOutputSchema(persistentShellOutputSchema),
 	)
@@ -120,7 +126,12 @@ func (r *Registry) handlePersistentShell(ctx context.Context, request mcp.CallTo
 		shell = shellArg
 	}
 
-	return r.sessionManager.ExecuteCommand(sessionID, command, timeout, shell, false)
+	remote := ""
+	if remoteArg, ok := args["remote"].(string); ok {
+		remote = remoteArg
+	}
+
+	return r.sessionManager.ExecuteCommand(sessionID, command, timeout, shell, remote, false)
 }
 
 // handleSessionManager handles session management operations
@@ -151,15 +162,17 @@ func (r *Registry) handleSessionManager(ctx context.Context, request mcp.CallToo
 		for id, info := range sessions {
 			infoMap := info.(map[string]interface{})
 			structuredSessions = append(structuredSessions, map[string]interface{}{
-				"id":        id,
-				"shell":     infoMap["shell"],
-				"pid":       infoMap["pid"],
-				"created":   infoMap["created"],
-				"last_used": infoMap["last_used"],
-				"alive":     infoMap["alive"],
+				"id":          id,
+				"shell":       infoMap["shell"],
+				"pid":         infoMap["pid"],
+				"created":     infoMap["created"],
+				"last_used":   infoMap["last_used"],
+				"alive":       infoMap["alive"],
+				"remote":      infoMap["remote"],
+				"remote_path": infoMap["remote_path"],
 			})
-			result += fmt.Sprintf("- %s: %s (PID: %v, Created: %s, Last Used: %s, Alive: %v)\n",
-				id, infoMap["shell"], infoMap["pid"], infoMap["created"], infoMap["last_used"], infoMap["alive"])
+			result += fmt.Sprintf("- %s: %s (Remote: %v, Path: %v, PID: %v, Created: %s, Last Used: %s, Alive: %v)\n",
+				id, infoMap["shell"], infoMap["remote"], infoMap["remote_path"], infoMap["pid"], infoMap["created"], infoMap["last_used"], infoMap["alive"])
 		}
 
 		structured["message"] = fmt.Sprintf("%d active session(s)", len(sessions))

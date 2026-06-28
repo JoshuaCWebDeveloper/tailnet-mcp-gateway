@@ -48,10 +48,9 @@ RUN curl -fsSL https://tailscale.com/install.sh | sh
 COPY --from=tunnel-builder /out/tunnel-client /usr/local/bin/tunnel-client
 COPY --from=terminal-builder /out/mcp-terminal-server /usr/local/bin/mcp-terminal-server
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
-COPY scripts/remote /usr/local/bin/remote
 COPY AGENTS.md /AGENTS.md
 
-RUN chmod +x /usr/local/bin/tunnel-client /usr/local/bin/mcp-terminal-server /usr/local/bin/entrypoint.sh /usr/local/bin/remote \
+RUN chmod +x /usr/local/bin/tunnel-client /usr/local/bin/mcp-terminal-server /usr/local/bin/entrypoint.sh \
  && mkdir -p /work /root/.ssh /var/lib/tailscale /var/run/tailscale /var/log/tunnel-client \
  && ln -sf /AGENTS.md /work/AGENTS.md
 
