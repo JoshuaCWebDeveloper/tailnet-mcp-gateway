@@ -84,10 +84,13 @@ func (e *Executor) Execute(request mcp.CallToolRequest) (*mcp.CallToolResult, er
 
 	result := map[string]interface{}{
 		"stdout":          stdout.String(),
+		"stderr":          "",
+		"exit_code":       0,
+		"error":           "",
+		"timed_out":       false,
 		"platform":        e.config.Platform,
 		"shell":           shell,
 		"timeout_seconds": timeout.Seconds(),
-		"command":         command,
 	}
 
 	if captureStderr {
@@ -96,13 +99,17 @@ func (e *Executor) Execute(request mcp.CallToolRequest) (*mcp.CallToolResult, er
 
 	if err != nil {
 		result["error"] = err.Error()
+		result["exit_code"] = -1
+		if ctx.Err() == context.DeadlineExceeded {
+			result["timed_out"] = true
+		}
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			result["exit_code"] = exitErr.ExitCode()
 		}
-	} else {
-		result["exit_code"] = 0
 	}
 
-	return mcp.NewToolResultText(fmt.Sprintf("Command executed.\nOutput: %s\nExit Code: %v\nPlatform: %s\nShell: %s",
-		result["stdout"], result["exit_code"], result["platform"], result["shell"])), nil
+	fallbackText := fmt.Sprintf("Command executed.\nOutput: %s\nExit Code: %v\nPlatform: %s\nShell: %s",
+		result["stdout"], result["exit_code"], result["platform"], result["shell"])
+
+	return mcp.NewToolResultStructured(result, fallbackText), nil
 }

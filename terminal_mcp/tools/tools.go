@@ -46,6 +46,7 @@ func (r *Registry) RegisterTools(s *server.MCPServer) {
 		mcp.WithBoolean("capture_stderr",
 			mcp.Description("Whether to capture stderr separately (optional, defaults to false)"),
 		),
+		mcp.WithRawOutputSchema(executeCommandOutputSchema),
 	)
 
 	// Register persistent_shell tool
@@ -65,6 +66,7 @@ func (r *Registry) RegisterTools(s *server.MCPServer) {
 		mcp.WithString("shell",
 			mcp.Description("Shell to use for execution (optional, defaults to system shell)"),
 		),
+		mcp.WithRawOutputSchema(persistentShellOutputSchema),
 	)
 
 	// Register session_manager tool
@@ -72,12 +74,13 @@ func (r *Registry) RegisterTools(s *server.MCPServer) {
 		mcp.WithDescription("Manage persistent shell sessions"),
 		mcp.WithString("action",
 			mcp.Required(),
-			mcp.Description("Action: 'list' to show sessions, 'close' to close a session"),
+			mcp.Description("Action: list to show sessions, close to close a session"),
 			mcp.Enum("list", "close"),
 		),
 		mcp.WithString("session_id",
-			mcp.Description("Session ID (required for 'close' action)"),
+			mcp.Description("Session ID (required for close action)"),
 		),
+		mcp.WithRawOutputSchema(sessionManagerOutputSchema),
 	)
 
 	// Add tool handlers
@@ -132,18 +135,37 @@ func (r *Registry) handleSessionManager(ctx context.Context, request mcp.CallToo
 	switch action {
 	case "list":
 		sessions := r.sessionManager.ListSessions()
+		structured := map[string]interface{}{
+			"action":            "list",
+			"message":           "No active sessions",
+			"sessions":          []map[string]interface{}{},
+			"closed_session_id": "",
+		}
+
 		if len(sessions) == 0 {
-			return mcp.NewToolResultText("No active sessions"), nil
+			return mcp.NewToolResultStructured(structured, "No active sessions"), nil
 		}
 
 		result := "Active Sessions:\n"
+		structuredSessions := make([]map[string]interface{}, 0, len(sessions))
 		for id, info := range sessions {
 			infoMap := info.(map[string]interface{})
+			structuredSessions = append(structuredSessions, map[string]interface{}{
+				"id":        id,
+				"shell":     infoMap["shell"],
+				"pid":       infoMap["pid"],
+				"created":   infoMap["created"],
+				"last_used": infoMap["last_used"],
+				"alive":     infoMap["alive"],
+			})
 			result += fmt.Sprintf("- %s: %s (PID: %v, Created: %s, Last Used: %s, Alive: %v)\n",
 				id, infoMap["shell"], infoMap["pid"], infoMap["created"], infoMap["last_used"], infoMap["alive"])
 		}
 
-		return mcp.NewToolResultText(result), nil
+		structured["message"] = fmt.Sprintf("%d active session(s)", len(sessions))
+		structured["sessions"] = structuredSessions
+
+		return mcp.NewToolResultStructured(structured, result), nil
 
 	case "close":
 		sessionID, ok := args["session_id"].(string)
@@ -155,7 +177,14 @@ func (r *Registry) handleSessionManager(ctx context.Context, request mcp.CallToo
 			return mcp.NewToolResultError(fmt.Sprintf("Failed to close session: %v", err)), nil
 		}
 
-		return mcp.NewToolResultText(fmt.Sprintf("Session closed: %s", sessionID)), nil
+		structured := map[string]interface{}{
+			"action":            "close",
+			"message":           fmt.Sprintf("Session closed: %s", sessionID),
+			"sessions":          []map[string]interface{}{},
+			"closed_session_id": sessionID,
+		}
+
+		return mcp.NewToolResultStructured(structured, fmt.Sprintf("Session closed: %s", sessionID)), nil
 
 	default:
 		return mcp.NewToolResultError(fmt.Sprintf("Unknown action: %s", action)), nil
@@ -190,6 +219,7 @@ func (r *Registry) GetToolSchemas() []map[string]interface{} {
 				},
 				"required": []string{"command"},
 			},
+			"outputSchema": executeCommandOutputSchema,
 		},
 		{
 			"name":        "persistent_shell",
@@ -216,6 +246,7 @@ func (r *Registry) GetToolSchemas() []map[string]interface{} {
 				},
 				"required": []string{"command", "session_id"},
 			},
+			"outputSchema": persistentShellOutputSchema,
 		},
 		{
 			"name":        "session_manager",
@@ -225,16 +256,17 @@ func (r *Registry) GetToolSchemas() []map[string]interface{} {
 				"properties": map[string]interface{}{
 					"action": map[string]interface{}{
 						"type":        "string",
-						"description": "Action: 'list' to show sessions, 'close' to close a session",
+						"description": "Action: list to show sessions, close to close a session",
 						"enum":        []string{"list", "close"},
 					},
 					"session_id": map[string]interface{}{
 						"type":        "string",
-						"description": "Session ID (required for 'close' action)",
+						"description": "Session ID (required for close action)",
 					},
 				},
 				"required": []string{"action"},
 			},
+			"outputSchema": sessionManagerOutputSchema,
 		},
 	}
 }

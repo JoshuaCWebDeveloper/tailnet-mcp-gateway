@@ -183,11 +183,20 @@ func (sm *Manager) ExecuteCommand(sessionID string, command string, timeout time
 	select {
 	case output := <-outputChan:
 		session.LastUsed = time.Now()
+		trimmedOutput := strings.TrimSpace(output)
+		structured := map[string]interface{}{
+			"stdout":          trimmedOutput,
+			"session_id":      sessionID,
+			"shell":           session.Shell,
+			"pid":             session.Cmd.Process.Pid,
+			"timeout_seconds": timeout.Seconds(),
+			"timed_out":       false,
+		}
 
 		result := fmt.Sprintf("Command executed in persistent shell.\nOutput: %s\nSession ID: %s\nShell: %s (PID: %d)",
-			strings.TrimSpace(output), sessionID, session.Shell, session.Cmd.Process.Pid)
+			trimmedOutput, sessionID, session.Shell, session.Cmd.Process.Pid)
 
-		return mcp.NewToolResultText(result), nil
+		return mcp.NewToolResultStructured(structured, result), nil
 
 	case err := <-errorChan:
 		return mcp.NewToolResultError(fmt.Sprintf("Error reading output: %v", err)), nil
