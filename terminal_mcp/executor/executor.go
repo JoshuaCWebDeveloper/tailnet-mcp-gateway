@@ -10,6 +10,7 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"mcp-terminal-server/config"
+	"mcp-terminal-server/remote"
 )
 
 // Executor handles non-persistent command execution
@@ -51,6 +52,16 @@ func (e *Executor) Execute(request mcp.CallToolRequest) (*mcp.CallToolResult, er
 		captureStderr = captureStderrArg
 	}
 
+	// Get optional remote target
+	remoteRaw := ""
+	if remoteArg, ok := args["remote"].(string); ok {
+		remoteRaw = remoteArg
+	}
+	remoteSpec, err := remote.Parse(remoteRaw)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Invalid remote: %v", err)), nil
+	}
+
 	// Create context with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
@@ -59,7 +70,16 @@ func (e *Executor) Execute(request mcp.CallToolRequest) (*mcp.CallToolResult, er
 	var cmd *exec.Cmd
 	switch e.config.Platform {
 	case "darwin", "linux":
-		cmd = exec.CommandContext(ctx, shell, "-c", command)
+		if remoteSpec.Raw != "" {
+			sshArgs, err := remoteSpec.SSHArgs()
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("Invalid remote: %v", err)), nil
+			}
+			sshArgs = append(sshArgs, remoteSpec.Command(command))
+			cmd = exec.CommandContext(ctx, "ssh", sshArgs...)
+		} else {
+			cmd = exec.CommandContext(ctx, shell, "-c", command)
+		}
 	default:
 		return mcp.NewToolResultError(fmt.Sprintf("Platform %s not supported", e.config.Platform)), nil
 	}
@@ -80,7 +100,7 @@ func (e *Executor) Execute(request mcp.CallToolRequest) (*mcp.CallToolResult, er
 		cmd.Stderr = &stdout
 	}
 
-	err := cmd.Run()
+	err = cmd.Run()
 
 	result := map[string]interface{}{
 		"stdout":          stdout.String(),
@@ -108,8 +128,15 @@ func (e *Executor) Execute(request mcp.CallToolRequest) (*mcp.CallToolResult, er
 		}
 	}
 
-	fallbackText := fmt.Sprintf("Command executed.\nOutput: %s\nExit Code: %v\nPlatform: %s\nShell: %s",
-		result["stdout"], result["exit_code"], result["platform"], result["shell"])
+	location := "local"
+	if remoteSpec.Raw != "" {
+		location = "remote " + remoteSpec.Target
+		if remoteSpec.Path != "" {
+			location += " " + remoteSpec.Path
+		}
+	}
+	fallbackText := fmt.Sprintf("Command executed on %s.\nOutput: %s\nExit Code: %v\nPlatform: %s\nShell: %s",
+		location, result["stdout"], result["exit_code"], result["platform"], result["shell"])
 
 	return mcp.NewToolResultStructured(result, fallbackText), nil
 }
