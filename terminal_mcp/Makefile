@@ -4,7 +4,7 @@ build: deps
 	go build -o mcp-terminal-server
 
 deps:
-	go mod download
+	go mod tidy
 
 clean:
 	rm -f mcp-terminal-server
