@@ -33,9 +33,9 @@ Options:
   --remote-dir PATH          Destination directory in the container. Default: ${REMOTE_DIR}
   --entrypoint PATH          Entry point script to pass through to install.sh.
   --root-user USER           User to use for Docker exec retry. Default: ${ROOT_USER}
-  --public-keys VALUE        SSH public key, public-key file, or comma-separated values.
-  --auth-key VALUE           Tailscale auth key to pass to configure.sh. Required.
-  --hostname VALUE           Tailscale hostname. Default: --target value.
+  --ssh-public-keys VALUE        SSH public key, public-key file, or comma-separated values.
+  --tailscale-auth-key VALUE           Tailscale auth key to pass to configure.sh. Required.
+  --tailscale-hostname VALUE           Tailscale hostname. Default: --target value.
   -h, --help                 Show this help.
 
 Defaults:
@@ -85,15 +85,15 @@ while [ "$#" -gt 0 ]; do
       ROOT_USER="${2:-}"
       shift 2
       ;;
-    --public-keys)
+    --ssh-public-keys)
       PUBLIC_KEYS+=("${2:-}")
       shift 2
       ;;
-    --auth-key)
+    --tailscale-auth-key)
       AUTH_KEY="${2:-}"
       shift 2
       ;;
-    --hostname)
+    --tailscale-hostname)
       HOSTNAME="${2:-}"
       shift 2
       ;;
@@ -125,7 +125,7 @@ if [ -z "${TARGET}" ]; then
 fi
 
 if [ -z "${AUTH_KEY}" ]; then
-  machine_tools_log "ERROR: provide --auth-key"
+  machine_tools_log "ERROR: provide --tailscale-auth-key"
   usage
   exit 2
 fi
@@ -134,9 +134,9 @@ if [ -z "${HOSTNAME}" ]; then
   HOSTNAME="${TARGET}"
 fi
 
-CONFIGURE_ARGS+=(--auth-key "${AUTH_KEY}" --hostname "${HOSTNAME}")
+CONFIGURE_ARGS+=(--tailscale-auth-key "${AUTH_KEY}" --tailscale-hostname "${HOSTNAME}")
 for key in "${PUBLIC_KEYS[@]}"; do
-  CONFIGURE_ARGS+=(--public-keys "${key}")
+  CONFIGURE_ARGS+=(--ssh-public-keys "${key}")
 done
 
 if [ -z "${EXEC_PREFIX}" ]; then
