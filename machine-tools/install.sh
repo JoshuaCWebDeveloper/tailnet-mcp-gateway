@@ -4,6 +4,7 @@ set -euo pipefail
 MACHINE_TOOLS_LOG_NAME=install
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 START_SCRIPT_DEST=/usr/local/bin/machine-tools-start.sh
+START_USER="$(id -un 2>/dev/null || id -u)"
 ENTRYPOINT_SCRIPT=""
 . "${SCRIPT_DIR}/lib.sh"
 
@@ -12,7 +13,8 @@ usage() {
 Usage: $0 [--entrypoint /path/to/entrypoint-script]
 
 Runs all machine-tools install scripts, installs the global start script at
-${START_SCRIPT_DEST}, and configures it to run on container start.
+${START_SCRIPT_DEST}, and configures it to run on container start as the same
+user that ran install.sh: ${START_USER}.
 
 Startup configuration order:
   1. Supervisor, if detected.
@@ -63,10 +65,11 @@ configure_supervisor() {
   fi
 
   conf_file="${conf_dir}/machine-tools-start.conf"
-  machine_tools_log "configuring Supervisor startup at ${conf_file}"
+  machine_tools_log "configuring Supervisor startup at ${conf_file} for user ${START_USER}"
   machine_tools_as_root tee "${conf_file}" >/dev/null <<SUPERVISOR
 [program:machine-tools-start]
 command=${START_SCRIPT_DEST}
+user=${START_USER}
 autostart=true
 autorestart=false
 startsecs=0
@@ -85,7 +88,7 @@ SUPERVISOR
 patch_entrypoint() {
   local marker line tmp
   marker="# machine-tools startup hook"
-  line="if [ -x ${START_SCRIPT_DEST} ]; then ${START_SCRIPT_DEST} || true; fi"
+  line="if [ -x ${START_SCRIPT_DEST} ]; then if [ \"\$(id -un 2>/dev/null || id -u)\" = \"${START_USER}\" ]; then ${START_SCRIPT_DEST} || true; elif command -v su >/dev/null 2>&1; then su -s /bin/sh -c ${START_SCRIPT_DEST} ${START_USER} || true; else echo \"[machine-tools] unable to switch to start user ${START_USER}\" >&2; ${START_SCRIPT_DEST} || true; fi; fi"
 
   if [ -z "${ENTRYPOINT_SCRIPT}" ]; then
     return 1
@@ -100,15 +103,15 @@ patch_entrypoint() {
   fi
 
   tmp="$(mktemp)"
-  if head -n 1 "${ENTRYPOINT_SCRIPT}" | grep -q '^#!'; then
+  if head -n 1 "${ENTRYPOINT_SCRIPT}" | grep -q ^#!; then
     {
       head -n 1 "${ENTRYPOINT_SCRIPT}"
-      printf '%s\n%s\n' "${marker}" "${line}"
+      printf %sn%sn "${marker}" "${line}"
       tail -n +2 "${ENTRYPOINT_SCRIPT}"
     } > "${tmp}"
   else
     {
-      printf '%s\n%s\n' "${marker}" "${line}"
+      printf %sn%sn "${marker}" "${line}"
       cat "${ENTRYPOINT_SCRIPT}"
     } > "${tmp}"
   fi
@@ -116,7 +119,7 @@ patch_entrypoint() {
   chmod --reference="${ENTRYPOINT_SCRIPT}" "${tmp}" 2>/dev/null || chmod +x "${tmp}"
   machine_tools_as_root cp "${tmp}" "${ENTRYPOINT_SCRIPT}"
   rm -f "${tmp}"
-  machine_tools_log "patched entrypoint startup hook into ${ENTRYPOINT_SCRIPT}"
+  machine_tools_log "patched entrypoint startup hook into ${ENTRYPOINT_SCRIPT} for user ${START_USER}"
 }
 
 configure_startup() {
@@ -137,5 +140,6 @@ configure_startup() {
 "${SCRIPT_DIR}/install-ssh.sh"
 "${SCRIPT_DIR}/install-tailscale.sh"
 install_start_script
+machine_tools_log "configuring start script to run as ${START_USER}"
 configure_startup
 machine_tools_log "installation complete"
