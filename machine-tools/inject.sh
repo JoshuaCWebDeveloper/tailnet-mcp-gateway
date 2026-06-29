@@ -12,6 +12,10 @@ REMOTE_DIR="/tmp/machine-tools"
 ENTRYPOINT_SCRIPT=""
 ROOT_USER="root"
 INSTALL_ARGS=()
+CONFIGURE_ARGS=()
+PUBLIC_KEYS=()
+AUTH_KEY=""
+HOSTNAME=""
 ROOT_RETRY_USED=0
 
 usage() {
@@ -29,6 +33,9 @@ Options:
   --remote-dir PATH          Destination directory in the container. Default: ${REMOTE_DIR}
   --entrypoint PATH          Entry point script to pass through to install.sh.
   --root-user USER           User to use for Docker exec retry. Default: ${ROOT_USER}
+  --ssh-public-keys VALUE        SSH public key, public-key file, or comma-separated values.
+  --tailscale-auth-key VALUE           Tailscale auth key to pass to configure.sh. Required.
+  --tailscale-hostname VALUE           Tailscale hostname. Default: --target value.
   -h, --help                 Show this help.
 
 Defaults:
@@ -78,6 +85,18 @@ while [ "$#" -gt 0 ]; do
       ROOT_USER="${2:-}"
       shift 2
       ;;
+    --ssh-public-keys)
+      PUBLIC_KEYS+=("${2:-}")
+      shift 2
+      ;;
+    --tailscale-auth-key)
+      AUTH_KEY="${2:-}"
+      shift 2
+      ;;
+    --tailscale-hostname)
+      HOSTNAME="${2:-}"
+      shift 2
+      ;;
     --)
       shift
       INSTALL_ARGS=("$@")
@@ -105,6 +124,21 @@ if [ -z "${TARGET}" ]; then
   exit 2
 fi
 
+if [ -z "${AUTH_KEY}" ]; then
+  machine_tools_log "ERROR: provide --tailscale-auth-key"
+  usage
+  exit 2
+fi
+
+if [ -z "${HOSTNAME}" ]; then
+  HOSTNAME="${TARGET}"
+fi
+
+CONFIGURE_ARGS+=(--tailscale-auth-key "${AUTH_KEY}" --tailscale-hostname "${HOSTNAME}")
+for key in "${PUBLIC_KEYS[@]}"; do
+  CONFIGURE_ARGS+=(--ssh-public-keys "${key}")
+done
+
 if [ -z "${EXEC_PREFIX}" ]; then
   EXEC_PREFIX="docker exec"
 fi
@@ -119,6 +153,10 @@ copy_destination="${TARGET}:${REMOTE_DIR}"
 validate_local_scripts() {
   if ! grep -Fq -- "--install-setuid-start-helper" "${SCRIPT_DIR}/install.sh"; then
     machine_tools_log "ERROR: local install.sh does not support --install-setuid-start-helper; update the whole machine-tools directory before running inject.sh"
+    exit 1
+  fi
+  if [ ! -x "${SCRIPT_DIR}/configure.sh" ]; then
+    machine_tools_log "ERROR: local configure.sh is missing or not executable; update the whole machine-tools directory before running inject.sh"
     exit 1
   fi
 }
@@ -146,6 +184,22 @@ run_copy() {
   # Intentionally split prefixes/target so callers can provide shell-style command fragments.
   # shellcheck disable=SC2086
   ${CP_PREFIX} "${SCRIPT_DIR}" "${copy_destination}"
+}
+
+
+run_copy_ssh_dir() {
+  local ssh_dir ssh_destination
+  ssh_dir="$(cd "${SCRIPT_DIR}/.." && pwd)/ssh"
+  ssh_destination="${TARGET}:${REMOTE_DIR}/ssh"
+
+  if [ ! -d "${ssh_dir}" ]; then
+    return 0
+  fi
+
+  machine_tools_log "copying ${ssh_dir} to ${ssh_destination}"
+  # Intentionally split prefixes/target so callers can provide shell-style command fragments.
+  # shellcheck disable=SC2086
+  ${CP_PREFIX} "${ssh_dir}" "${ssh_destination}"
 }
 
 run_exec() {
@@ -187,10 +241,14 @@ run_exec_with_root_retry() {
 validate_local_scripts
 clear_remote_dir
 run_copy
+run_copy_ssh_dir
 run_exec_with_root_retry install "${REMOTE_DIR}/install.sh" "${INSTALL_ARGS[@]}"
 if [ "${ROOT_RETRY_USED}" -eq 1 ]; then
+  machine_tools_log "install used root retry; running configure script with docker exec --user ${ROOT_USER}"
+  docker exec --user "${ROOT_USER}" ${TARGET} "${REMOTE_DIR}/configure.sh" "${CONFIGURE_ARGS[@]}"
   machine_tools_log "install used root retry; running start script with docker exec --user ${ROOT_USER}"
   docker exec --user "${ROOT_USER}" ${TARGET} "${REMOTE_DIR}/start.sh"
 else
+  run_exec_with_root_retry configure "${REMOTE_DIR}/configure.sh" "${CONFIGURE_ARGS[@]}"
   run_exec_with_root_retry start "${REMOTE_DIR}/start.sh"
 fi
