@@ -4,6 +4,7 @@ set -euo pipefail
 MACHINE_TOOLS_LOG_NAME=install
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 START_SCRIPT_DEST=/usr/local/bin/machine-tools-start.sh
+START_SCRIPT_LIB_DIR=/usr/local/lib/machine-tools
 START_USER="$(id -un 2>/dev/null || id -u)"
 ENTRYPOINT_SCRIPT=""
 INSTALL_PRIV_START_HELPER=0
@@ -54,7 +55,16 @@ while [ "$#" -gt 0 ]; do
 done
 
 install_start_script() {
-  machine_tools_as_root install -m 0755 "${SCRIPT_DIR}/start.sh" "${START_SCRIPT_DEST}"
+  machine_tools_as_root mkdir -p "${START_SCRIPT_LIB_DIR}"
+  machine_tools_as_root install -m 0755 "${SCRIPT_DIR}/start.sh" "${START_SCRIPT_LIB_DIR}/start.sh"
+  machine_tools_as_root install -m 0755 "${SCRIPT_DIR}/start-ssh.sh" "${START_SCRIPT_LIB_DIR}/start-ssh.sh"
+  machine_tools_as_root install -m 0755 "${SCRIPT_DIR}/start-tailscale.sh" "${START_SCRIPT_LIB_DIR}/start-tailscale.sh"
+  machine_tools_as_root install -m 0644 "${SCRIPT_DIR}/lib.sh" "${START_SCRIPT_LIB_DIR}/lib.sh"
+  printf '#!/usr/bin/env bash
+exec %s/start.sh "$@"
+' "${START_SCRIPT_LIB_DIR}" | machine_tools_as_root tee "${START_SCRIPT_DEST}" >/dev/null
+  machine_tools_as_root chmod 0755 "${START_SCRIPT_DEST}"
+  machine_tools_as_root chown root:root "${START_SCRIPT_DEST}" 2>/dev/null || true
 }
 
 install_priv_start_helper() {
