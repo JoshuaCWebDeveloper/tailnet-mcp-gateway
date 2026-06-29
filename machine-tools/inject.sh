@@ -38,7 +38,7 @@ The exec command is executed as:
   EXEC_PREFIX TARGET REMOTE_INSTALL_SCRIPT [install-args...]
 
 If that fails and EXEC_PREFIX is exactly "docker exec", inject.sh retries as:
-  docker exec --user ROOT_USER TARGET REMOTE_INSTALL_SCRIPT [install-args...]
+  docker exec --user ROOT_USER TARGET REMOTE_INSTALL_SCRIPT --install-setuid-start-helper [install-args...]
 
 The copy command is executed as:
   CP_PREFIX LOCAL_MACHINE_TOOLS_DIR DESTINATION
@@ -149,7 +149,11 @@ run_exec_with_root_retry() {
   fi
 
   machine_tools_log "${description} failed; retrying with docker exec --user ${ROOT_USER}"
-  docker exec --user "${ROOT_USER}" ${TARGET} "${script_path}" "$@"
+  if [ "${description}" = "install" ]; then
+    docker exec --user "${ROOT_USER}" ${TARGET} "${script_path}" --install-setuid-start-helper "$@"
+  else
+    docker exec --user "${ROOT_USER}" ${TARGET} "${script_path}" "$@"
+  fi
 }
 
 run_copy
