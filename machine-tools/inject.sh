@@ -122,6 +122,24 @@ validate_local_scripts() {
   fi
 }
 
+
+clear_remote_dir() {
+  machine_tools_log "removing existing ${REMOTE_DIR} in container"
+  # Intentionally split prefixes/target so callers can provide shell-style command fragments.
+  # shellcheck disable=SC2086
+  if ${EXEC_PREFIX} ${TARGET} rm -rf "${REMOTE_DIR}"; then
+    return 0
+  fi
+
+  if [ "${EXEC_PREFIX}" != "docker exec" ]; then
+    machine_tools_log "ERROR: failed to remove ${REMOTE_DIR}; root retry is only supported for the default Docker exec prefix"
+    return 1
+  fi
+
+  machine_tools_log "failed to remove ${REMOTE_DIR}; retrying with docker exec --user ${ROOT_USER}"
+  docker exec --user "${ROOT_USER}" ${TARGET} rm -rf "${REMOTE_DIR}"
+}
+
 run_copy() {
   machine_tools_log "copying ${SCRIPT_DIR} to ${copy_destination}"
   # Intentionally split prefixes/target so callers can provide shell-style command fragments.
@@ -165,6 +183,7 @@ run_exec_with_root_retry() {
 }
 
 validate_local_scripts
+clear_remote_dir
 run_copy
 run_exec_with_root_retry install "${REMOTE_DIR}/install.sh" "${INSTALL_ARGS[@]}"
 run_exec_with_root_retry start "${REMOTE_DIR}/start.sh"
