@@ -130,13 +130,14 @@ patch_entrypoint() {
     machine_tools_log "ERROR: entrypoint script does not exist: ${ENTRYPOINT_SCRIPT}"
     exit 1
   fi
-  if grep -Fq "${marker}" "${ENTRYPOINT_SCRIPT}"; then
-    machine_tools_log "entrypoint already contains startup hook: ${ENTRYPOINT_SCRIPT}"
-    return 0
-  fi
-
   tmp="$(mktemp)"
-  if head -n 1 "${ENTRYPOINT_SCRIPT}" | grep -q '^#!'; then
+  if grep -Fq "${marker}" "${ENTRYPOINT_SCRIPT}"; then
+    machine_tools_log "entrypoint already contains startup hook; updating hook command in ${ENTRYPOINT_SCRIPT}"
+    awk -v marker="${marker}" -v line="${line}" '
+      $0 == marker { print; print line; getline; next }
+      { print }
+    ' "${ENTRYPOINT_SCRIPT}" > "${tmp}"
+  elif head -n 1 "${ENTRYPOINT_SCRIPT}" | grep -q '^#!'; then
     {
       head -n 1 "${ENTRYPOINT_SCRIPT}"
       printf '%s\n%s\n' "${marker}" "${line}"
@@ -152,7 +153,7 @@ patch_entrypoint() {
   chmod --reference="${ENTRYPOINT_SCRIPT}" "${tmp}" 2>/dev/null || chmod +x "${tmp}"
   machine_tools_as_root cp "${tmp}" "${ENTRYPOINT_SCRIPT}"
   rm -f "${tmp}"
-  machine_tools_log "patched entrypoint startup hook into ${ENTRYPOINT_SCRIPT} for user ${START_USER}"
+  machine_tools_log "patched entrypoint startup hook into ${ENTRYPOINT_SCRIPT}"
 }
 
 configure_startup() {

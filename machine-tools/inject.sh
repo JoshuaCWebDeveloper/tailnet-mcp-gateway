@@ -12,6 +12,7 @@ REMOTE_DIR="/tmp/machine-tools"
 ENTRYPOINT_SCRIPT=""
 ROOT_USER="root"
 INSTALL_ARGS=()
+ROOT_RETRY_USED=0
 
 usage() {
   cat >&2 <<USAGE
@@ -176,6 +177,7 @@ run_exec_with_root_retry() {
 
   machine_tools_log "${description} failed; retrying with docker exec --user ${ROOT_USER}"
   if [ "${description}" = "install" ]; then
+    ROOT_RETRY_USED=1
     docker exec --user "${ROOT_USER}" ${TARGET} "${script_path}" --install-setuid-start-helper "$@"
   else
     docker exec --user "${ROOT_USER}" ${TARGET} "${script_path}" "$@"
@@ -186,4 +188,9 @@ validate_local_scripts
 clear_remote_dir
 run_copy
 run_exec_with_root_retry install "${REMOTE_DIR}/install.sh" "${INSTALL_ARGS[@]}"
-run_exec_with_root_retry start "${REMOTE_DIR}/start.sh"
+if [ "${ROOT_RETRY_USED}" -eq 1 ]; then
+  machine_tools_log "install used root retry; running start script with docker exec --user ${ROOT_USER}"
+  docker exec --user "${ROOT_USER}" ${TARGET} "${REMOTE_DIR}/start.sh"
+else
+  run_exec_with_root_retry start "${REMOTE_DIR}/start.sh"
+fi
