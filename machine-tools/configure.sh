@@ -11,7 +11,7 @@ HOSTNAME=""
 
 usage() {
   cat >&2 <<USAGE
-Usage: $0 --auth-key AUTH_KEY [--hostname HOSTNAME] [--public-keys KEY_OR_FILE[,KEY_OR_FILE...]]
+Usage: $0 --tailscale-auth-key AUTH_KEY [--tailscale-hostname HOSTNAME] [--ssh-public-keys KEY_OR_FILE[,KEY_OR_FILE...]]
 
 Runs all machine-tools configure scripts.
 USAGE
@@ -30,27 +30,27 @@ add_public_key_arg() {
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --public-keys)
+    --ssh-public-keys)
       if [ "$#" -lt 2 ] || [ -z "${2:-}" ]; then
-        machine_tools_log "ERROR: --public-keys requires a value"
+        machine_tools_log "ERROR: --ssh-public-keys requires a value"
         usage
         exit 2
       fi
       add_public_key_arg "$2"
       shift 2
       ;;
-    --auth-key)
+    --tailscale-auth-key)
       if [ "$#" -lt 2 ] || [ -z "${2:-}" ]; then
-        machine_tools_log "ERROR: --auth-key requires a value"
+        machine_tools_log "ERROR: --tailscale-auth-key requires a value"
         usage
         exit 2
       fi
       AUTH_KEY="$2"
       shift 2
       ;;
-    --hostname)
+    --tailscale-hostname)
       if [ "$#" -lt 2 ] || [ -z "${2:-}" ]; then
-        machine_tools_log "ERROR: --hostname requires a value"
+        machine_tools_log "ERROR: --tailscale-hostname requires a value"
         usage
         exit 2
       fi
@@ -70,7 +70,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 if [ -z "${AUTH_KEY}" ]; then
-  machine_tools_log "ERROR: --auth-key is required"
+  machine_tools_log "ERROR: --tailscale-auth-key is required"
   usage
   exit 2
 fi
