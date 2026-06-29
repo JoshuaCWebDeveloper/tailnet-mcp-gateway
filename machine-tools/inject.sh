@@ -10,6 +10,7 @@ EXEC_PREFIX=""
 CP_PREFIX=""
 REMOTE_DIR="/tmp/machine-tools"
 ENTRYPOINT_SCRIPT=""
+ROOT_USER="root"
 INSTALL_ARGS=()
 
 usage() {
@@ -26,6 +27,7 @@ Options:
                              Example: "kubectl cp"
   --remote-dir PATH          Destination directory in the container. Default: ${REMOTE_DIR}
   --entrypoint PATH          Entry point script to pass through to install.sh.
+  --root-user USER           User to use for Docker exec retry. Default: ${ROOT_USER}
   -h, --help                 Show this help.
 
 Defaults:
@@ -34,6 +36,9 @@ Defaults:
 
 The exec command is executed as:
   EXEC_PREFIX TARGET REMOTE_INSTALL_SCRIPT [install-args...]
+
+If that fails and EXEC_PREFIX is exactly "docker exec", inject.sh retries as:
+  docker exec --user ROOT_USER TARGET REMOTE_INSTALL_SCRIPT [install-args...]
 
 The copy command is executed as:
   CP_PREFIX LOCAL_MACHINE_TOOLS_DIR DESTINATION
@@ -66,6 +71,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --entrypoint)
       ENTRYPOINT_SCRIPT="${2:-}"
+      shift 2
+      ;;
+    --root-user)
+      ROOT_USER="${2:-}"
       shift 2
       ;;
     --)
@@ -105,17 +114,44 @@ fi
 
 copy_destination="${TARGET}:${REMOTE_DIR}"
 
-machine_tools_log "copying ${SCRIPT_DIR} to ${copy_destination}"
-# Intentionally split prefixes/target so callers can provide shell-style command fragments.
-# shellcheck disable=SC2086
-${CP_PREFIX} "${SCRIPT_DIR}" "${copy_destination}"
+run_copy() {
+  machine_tools_log "copying ${SCRIPT_DIR} to ${copy_destination}"
+  # Intentionally split prefixes/target so callers can provide shell-style command fragments.
+  # shellcheck disable=SC2086
+  ${CP_PREFIX} "${SCRIPT_DIR}" "${copy_destination}"
+}
 
-machine_tools_log "running install script in container"
-# Intentionally split prefixes/target so callers can provide shell-style command fragments.
-# shellcheck disable=SC2086
-${EXEC_PREFIX} ${TARGET} "${REMOTE_DIR}/install.sh" "${INSTALL_ARGS[@]}"
+run_exec() {
+  local description script_path
+  description="$1"
+  script_path="$2"
+  shift 2
 
-machine_tools_log "running start script in container"
-# Intentionally split prefixes/target so callers can provide shell-style command fragments.
-# shellcheck disable=SC2086
-${EXEC_PREFIX} ${TARGET} "${REMOTE_DIR}/start.sh"
+  machine_tools_log "running ${description} script in container"
+  # Intentionally split prefixes/target so callers can provide shell-style command fragments.
+  # shellcheck disable=SC2086
+  ${EXEC_PREFIX} ${TARGET} "${script_path}" "$@"
+}
+
+run_exec_with_root_retry() {
+  local description script_path
+  description="$1"
+  script_path="$2"
+  shift 2
+
+  if run_exec "${description}" "${script_path}" "$@"; then
+    return 0
+  fi
+
+  if [ "${EXEC_PREFIX}" != "docker exec" ]; then
+    machine_tools_log "ERROR: ${description} failed and root retry is only supported for the default Docker exec prefix"
+    return 1
+  fi
+
+  machine_tools_log "${description} failed; retrying with docker exec --user ${ROOT_USER}"
+  docker exec --user "${ROOT_USER}" ${TARGET} "${script_path}" "$@"
+}
+
+run_copy
+run_exec_with_root_retry install "${REMOTE_DIR}/install.sh" "${INSTALL_ARGS[@]}"
+run_exec_with_root_retry start "${REMOTE_DIR}/start.sh"
