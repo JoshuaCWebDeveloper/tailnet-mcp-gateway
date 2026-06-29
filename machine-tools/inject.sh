@@ -114,6 +114,14 @@ fi
 
 copy_destination="${TARGET}:${REMOTE_DIR}"
 
+
+validate_local_scripts() {
+  if ! grep -Fq -- "--install-setuid-start-helper" "${SCRIPT_DIR}/install.sh"; then
+    machine_tools_log "ERROR: local install.sh does not support --install-setuid-start-helper; update the whole machine-tools directory before running inject.sh"
+    exit 1
+  fi
+}
+
 run_copy() {
   machine_tools_log "copying ${SCRIPT_DIR} to ${copy_destination}"
   # Intentionally split prefixes/target so callers can provide shell-style command fragments.
@@ -156,6 +164,7 @@ run_exec_with_root_retry() {
   fi
 }
 
+validate_local_scripts
 run_copy
 run_exec_with_root_retry install "${REMOTE_DIR}/install.sh" "${INSTALL_ARGS[@]}"
 run_exec_with_root_retry start "${REMOTE_DIR}/start.sh"
