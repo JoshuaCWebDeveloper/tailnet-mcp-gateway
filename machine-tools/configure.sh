@@ -6,12 +6,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "${SCRIPT_DIR}/lib.sh"
 
 PUBLIC_KEYS=()
-AUTH_KEY=""
+API_KEY=""
 HOSTNAME=""
 
 usage() {
   cat >&2 <<USAGE
-Usage: $0 --tailscale-auth-key AUTH_KEY [--tailscale-hostname HOSTNAME] [--ssh-public-keys KEY_OR_FILE[,KEY_OR_FILE...]]
+Usage: $0 --tailscale-api-key API_KEY [--tailscale-hostname HOSTNAME] [--ssh-public-keys KEY_OR_FILE[,KEY_OR_FILE...]]
 
 Runs all machine-tools configure scripts.
 USAGE
@@ -39,13 +39,13 @@ while [ "$#" -gt 0 ]; do
       add_public_key_arg "$2"
       shift 2
       ;;
-    --tailscale-auth-key)
+    --tailscale-api-key)
       if [ "$#" -lt 2 ] || [ -z "${2:-}" ]; then
-        machine_tools_log "ERROR: --tailscale-auth-key requires a value"
+        machine_tools_log "ERROR: --tailscale-api-key requires a value"
         usage
         exit 2
       fi
-      AUTH_KEY="$2"
+      API_KEY="$2"
       shift 2
       ;;
     --tailscale-hostname)
@@ -69,8 +69,8 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-if [ -z "${AUTH_KEY}" ]; then
-  machine_tools_log "ERROR: --tailscale-auth-key is required"
+if [ -z "${API_KEY}" ]; then
+  machine_tools_log "ERROR: --tailscale-api-key is required"
   usage
   exit 2
 fi
@@ -82,7 +82,7 @@ done
 
 "${SCRIPT_DIR}/configure-ssh.sh" "${ssh_args[@]}"
 
-tailscale_args=(--auth-key "${AUTH_KEY}")
+tailscale_args=(--api-key "${API_KEY}")
 if [ -n "${HOSTNAME}" ]; then
   tailscale_args+=(--hostname "${HOSTNAME}")
 fi

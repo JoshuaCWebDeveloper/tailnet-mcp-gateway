@@ -14,7 +14,7 @@ ROOT_USER="root"
 INSTALL_ARGS=()
 CONFIGURE_ARGS=()
 PUBLIC_KEYS=()
-AUTH_KEY=""
+API_KEY=""
 HOSTNAME=""
 ROOT_RETRY_USED=0
 
@@ -34,7 +34,7 @@ Options:
   --entrypoint PATH          Entry point script to pass through to install.sh.
   --root-user USER           User to use for Docker exec retry. Default: ${ROOT_USER}
   --ssh-public-keys VALUE        SSH public key, public-key file, or comma-separated values.
-  --tailscale-auth-key VALUE           Tailscale auth key to pass to configure.sh. Required.
+  --tailscale-api-key VALUE            Tailscale API key used by configure.sh. Required.
   --tailscale-hostname VALUE           Tailscale hostname. Default: --target value.
   -h, --help                 Show this help.
 
@@ -89,8 +89,8 @@ while [ "$#" -gt 0 ]; do
       PUBLIC_KEYS+=("${2:-}")
       shift 2
       ;;
-    --tailscale-auth-key)
-      AUTH_KEY="${2:-}"
+    --tailscale-api-key)
+      API_KEY="${2:-}"
       shift 2
       ;;
     --tailscale-hostname)
@@ -124,8 +124,8 @@ if [ -z "${TARGET}" ]; then
   exit 2
 fi
 
-if [ -z "${AUTH_KEY}" ]; then
-  machine_tools_log "ERROR: provide --tailscale-auth-key"
+if [ -z "${API_KEY}" ]; then
+  machine_tools_log "ERROR: provide --tailscale-api-key"
   usage
   exit 2
 fi
@@ -134,7 +134,7 @@ if [ -z "${HOSTNAME}" ]; then
   HOSTNAME="${TARGET}"
 fi
 
-CONFIGURE_ARGS+=(--tailscale-auth-key "${AUTH_KEY}" --tailscale-hostname "${HOSTNAME}")
+CONFIGURE_ARGS+=(--tailscale-api-key "${API_KEY}" --tailscale-hostname "${HOSTNAME}")
 for key in "${PUBLIC_KEYS[@]}"; do
   CONFIGURE_ARGS+=(--ssh-public-keys "${key}")
 done
