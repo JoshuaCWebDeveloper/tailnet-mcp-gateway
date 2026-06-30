@@ -75,21 +75,16 @@ done
 
 
 detect_default_user_from_pid1() {
-  local pid1_uid
-  pid1_uid="$(awk '/^Uid:/ {print $2; exit}' /proc/1/status 2>/dev/null || true)"
-  if [ -z "${pid1_uid}" ]; then
+  TARGET_USER="$(ps -o user= -p 1 2>/dev/null | awk '{print $1; exit}' || true)"
+  if [ -z "${TARGET_USER}" ]; then
     return 1
   fi
 
   if command -v getent >/dev/null 2>&1; then
-    TARGET_USER="$(getent passwd "${pid1_uid}" | cut -d: -f1 || true)"
-    TARGET_HOME="$(getent passwd "${pid1_uid}" | cut -d: -f6 || true)"
-  fi
-
-  if [ -z "${TARGET_USER}" ]; then
-    TARGET_USER="${pid1_uid}"
+    TARGET_HOME="$(getent passwd "${TARGET_USER}" | cut -d: -f6 || true)"
   fi
 }
+
 
 if [ "${#PUBLIC_KEYS[@]}" -eq 0 ]; then
   for key_dir in "${SSH_KEY_DIRS[@]}"; do
