@@ -17,6 +17,7 @@ Usage: $0 [--user USER] [--home HOME] [--public-keys KEY_OR_FILE[,KEY_OR_FILE...
 
 Creates ~/.ssh and writes authorized_keys.
 
+When --user is omitted, the PID 1 process user is used.
 When --public-keys is omitted, all .pub files in ${SCRIPT_DIR}/ssh or ${PROJECT_DIR}/ssh are used.
 USAGE
 }
@@ -73,7 +74,6 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-
 detect_default_user_from_pid1() {
   TARGET_USER="$(ps -o user= -p 1 2>/dev/null | awk '{print $1; exit}' || true)"
   if [ -z "${TARGET_USER}" ]; then
@@ -84,7 +84,6 @@ detect_default_user_from_pid1() {
     TARGET_HOME="$(getent passwd "${TARGET_USER}" | cut -d: -f6 || true)"
   fi
 }
-
 
 if [ "${#PUBLIC_KEYS[@]}" -eq 0 ]; then
   for key_dir in "${SSH_KEY_DIRS[@]}"; do
