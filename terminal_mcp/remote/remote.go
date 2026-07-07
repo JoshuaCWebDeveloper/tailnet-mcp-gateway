@@ -2,8 +2,6 @@ package remote
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -66,23 +64,9 @@ func (s Spec) SSHArgs() ([]string, error) {
 		return nil, fmt.Errorf("remote host is required")
 	}
 
-	knownHosts := os.Getenv("REMOTE_KNOWN_HOSTS")
-	if knownHosts == "" {
-		knownHosts = "/work/known_hosts"
-	}
-	if err := os.MkdirAll(filepath.Dir(knownHosts), 0o755); err != nil {
-		return nil, fmt.Errorf("failed to create known_hosts directory: %w", err)
-	}
-
-	connectTimeout := os.Getenv("REMOTE_CONNECT_TIMEOUT")
-	if connectTimeout == "" {
-		connectTimeout = "10"
-	}
-
 	args := []string{
-		"-o", "UserKnownHostsFile=" + knownHosts,
-		"-o", "StrictHostKeyChecking=accept-new",
-		"-o", "ConnectTimeout=" + connectTimeout,
+		"-o", "StrictHostKeyChecking=no",
+		"-o", "UserKnownHostsFile=/dev/null",
 	}
 	if s.Port != "" {
 		args = append(args, "-p", s.Port)
