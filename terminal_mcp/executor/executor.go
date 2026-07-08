@@ -135,8 +135,14 @@ func (e *Executor) Execute(request mcp.CallToolRequest) (*mcp.CallToolResult, er
 			location += " " + remoteSpec.Path
 		}
 	}
-	fallbackText := fmt.Sprintf("Command executed on %s.\nOutput: %s\nExit Code: %v\nPlatform: %s\nShell: %s",
-		location, result["stdout"], result["exit_code"], result["platform"], result["shell"])
+	fallbackText := fmt.Sprintf("Command executed on %s.\nOutput: %s", location, result["stdout"])
+	if result["stderr"] != "" {
+		fallbackText += fmt.Sprintf("\nStderr: %s", result["stderr"])
+	}
+	if result["error"] != "" {
+		fallbackText += fmt.Sprintf("\nError: %s", result["error"])
+	}
+	fallbackText += fmt.Sprintf("\nExit Code: %v\nPlatform: %s\nShell: %s", result["exit_code"], result["platform"], result["shell"])
 
 	return mcp.NewToolResultStructured(result, fallbackText), nil
 }
