@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -121,6 +122,8 @@ func (sm *Manager) GetOrCreateSession(sessionID string, shell string, remoteRaw 
 		return nil, fmt.Errorf("failed to start shell: %v", err)
 	}
 
+	go io.Copy(io.Discard, stderr)
+
 	session := &ShellSession{
 		ID:         sessionID,
 		Cmd:        cmd,
@@ -161,13 +164,19 @@ func (sm *Manager) ExecuteCommand(sessionID string, command string, timeout time
 	}
 
 	invocationID := fmt.Sprintf("mcp_%d_%d", time.Now().UnixNano(), sm.invocationCounter.Add(1))
-	doneMarker := invocationID + "_DONE"
+	startMarker := "__MCP_START_" + invocationID + "__"
+	endMarker := "__MCP_END_" + invocationID + "__"
 
 	commandToRun := command
 	if session.Remote.Raw != "" {
 		commandToRun = session.Remote.Command(command)
 	}
-	fullCommand := fmt.Sprintf("{\n%s\n} 2>&1\necho %s\n", commandToRun, doneMarker)
+	fullCommand := fmt.Sprintf(
+		"printf '%%s\\n' %s\n{\n%s\n} 2>&1\n__mcp_status=$?\nprintf '\\n%%s:%%s\\n' %s \"$__mcp_status\"\n",
+		strconv.Quote(startMarker),
+		commandToRun,
+		strconv.Quote(endMarker),
+	)
 
 	if _, err := session.Stdin.Write([]byte(fullCommand)); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to write command: %v", err)), nil
@@ -176,15 +185,20 @@ func (sm *Manager) ExecuteCommand(sessionID string, command string, timeout time
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	outputChan := make(chan string, 1)
+	type commandOutput struct {
+		stdout   string
+		exitCode int
+	}
+	outputChan := make(chan commandOutput, 1)
 	errorChan := make(chan error, 1)
 
 	go func() {
 		var output strings.Builder
+		started := false
 		for {
 			line, err := session.Reader.ReadString('\n')
 			if err != nil {
-				if err == io.EOF && line != "" {
+				if err == io.EOF && line != "" && started {
 					output.WriteString(line)
 				}
 				errorChan <- err
@@ -193,10 +207,24 @@ func (sm *Manager) ExecuteCommand(sessionID string, command string, timeout time
 
 			line = strings.TrimSuffix(line, "\n")
 			line = strings.TrimSuffix(line, "\r")
-			if line == doneMarker {
-				outputChan <- output.String()
+			if !started {
+				if line == startMarker {
+					started = true
+				}
+				continue
+			}
+
+			endPrefix := endMarker + ":"
+			if strings.HasPrefix(line, endPrefix) {
+				exitCode, err := strconv.Atoi(strings.TrimPrefix(line, endPrefix))
+				if err != nil {
+					errorChan <- err
+					return
+				}
+				outputChan <- commandOutput{stdout: output.String(), exitCode: exitCode}
 				return
 			}
+
 			output.WriteString(line)
 			output.WriteString("\n")
 		}
@@ -205,7 +233,7 @@ func (sm *Manager) ExecuteCommand(sessionID string, command string, timeout time
 	select {
 	case output := <-outputChan:
 		session.LastUsed = time.Now()
-		trimmedOutput := strings.TrimSpace(output)
+		trimmedOutput := strings.TrimSpace(output.stdout)
 		executionMode := "local"
 		target := ""
 		remotePath := ""
@@ -222,6 +250,8 @@ func (sm *Manager) ExecuteCommand(sessionID string, command string, timeout time
 			"pid":             session.Cmd.Process.Pid,
 			"timeout_seconds": timeout.Seconds(),
 			"timed_out":       false,
+			"exit_code":       output.exitCode,
+			"correlated":      true,
 			"invocation_id":   invocationID,
 			"execution_mode":  executionMode,
 			"target":          target,
@@ -240,24 +270,29 @@ func (sm *Manager) ExecuteCommand(sessionID string, command string, timeout time
 		if target != "" {
 			result += fmt.Sprintf("\nTarget: %s", target)
 		}
-		result += fmt.Sprintf("\nOutput: %s\nSession ID: %s\nShell: %s (PID: %d)", trimmedOutput, sessionID, session.Shell, session.Cmd.Process.Pid)
+		result += fmt.Sprintf("\nOutput: %s\nExit Code: %d\nSession ID: %s\nShell: %s (PID: %d)", trimmedOutput, output.exitCode, sessionID, session.Shell, session.Cmd.Process.Pid)
 
 		return mcp.NewToolResultStructured(structured, result), nil
 
 	case err := <-errorChan:
-		return mcp.NewToolResultError(fmt.Sprintf("Error reading output: %v", err)), nil
+		sm.closeSessionAfterFailure(sessionID, session)
+		return mcp.NewToolResultError(fmt.Sprintf("Error reading output; closed session %s to prevent stale output from contaminating future commands: %v", sessionID, err)), nil
 
 	case <-ctx.Done():
-		sm.mu.Lock()
-		delete(sm.sessions, sessionID)
-		sm.mu.Unlock()
-		session.Stdin.Close()
-		session.Stdout.Close()
-		session.Stderr.Close()
-		if session.Cmd.Process != nil {
-			session.Cmd.Process.Kill()
-		}
+		sm.closeSessionAfterFailure(sessionID, session)
 		return mcp.NewToolResultError(fmt.Sprintf("Command timeout; closed session %s to prevent stale output from contaminating future commands", sessionID)), nil
+	}
+}
+
+func (sm *Manager) closeSessionAfterFailure(sessionID string, session *ShellSession) {
+	sm.mu.Lock()
+	delete(sm.sessions, sessionID)
+	sm.mu.Unlock()
+	session.Stdin.Close()
+	session.Stdout.Close()
+	session.Stderr.Close()
+	if session.Cmd.Process != nil {
+		session.Cmd.Process.Kill()
 	}
 }
 
