@@ -13,6 +13,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"mcp-terminal-server/config"
 	"mcp-terminal-server/remote"
+	"mcp-terminal-server/trace"
 )
 
 // Executor handles non-persistent command execution
@@ -81,12 +82,24 @@ func unwrapCommandOutput(stdout string, invocationID string) (string, int, bool)
 
 // Execute executes a command in a non-persistent manner
 func (e *Executor) Execute(request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return e.ExecuteWithMetadata(request, trace.Metadata{})
+}
+
+func (e *Executor) ExecuteWithMetadata(request mcp.CallToolRequest, metadata trace.Metadata) (*mcp.CallToolResult, error) {
 	args := request.GetArguments()
 
 	command, ok := args["command"].(string)
 	if !ok || command == "" {
 		return mcp.NewToolResultError("Command is required"), nil
 	}
+
+	// Get optional remote target
+	remoteRaw := ""
+	if remoteArg, ok := args["remote"].(string); ok {
+		remoteRaw = remoteArg
+	}
+	metadata = metadata.WithDefaults("execute_command", remoteRaw, command)
+	finishedAt := func() string { return time.Now().UTC().Format(time.RFC3339Nano) }
 
 	invocationID := newInvocationID()
 	wrappedCommand := wrapCommand(command, invocationID)
@@ -109,11 +122,6 @@ func (e *Executor) Execute(request mcp.CallToolRequest) (*mcp.CallToolResult, er
 		captureStderr = captureStderrArg
 	}
 
-	// Get optional remote target
-	remoteRaw := ""
-	if remoteArg, ok := args["remote"].(string); ok {
-		remoteRaw = remoteArg
-	}
 	remoteSpec, err := remote.Parse(remoteRaw)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Invalid remote: %v", err)), nil
@@ -175,19 +183,26 @@ func (e *Executor) Execute(request mcp.CallToolRequest) (*mcp.CallToolResult, er
 	}
 
 	result := map[string]interface{}{
-		"stdout":          stdout.String(),
-		"stderr":          "",
-		"exit_code":       0,
-		"error":           "",
-		"timed_out":       false,
-		"platform":        e.config.Platform,
-		"shell":           shell,
-		"timeout_seconds": timeout.Seconds(),
-		"invocation_id":   invocationID,
-		"execution_mode":  executionMode,
-		"target":          target,
-		"remote_path":     remotePath,
-		"correlated":      correlated,
+		"stdout":           stdout.String(),
+		"stderr":           "",
+		"exit_code":        0,
+		"error":            "",
+		"timed_out":        false,
+		"platform":         e.config.Platform,
+		"shell":            shell,
+		"timeout_seconds":  timeout.Seconds(),
+		"invocation_id":    invocationID,
+		"execution_mode":   executionMode,
+		"target":           target,
+		"remote_path":      remotePath,
+		"correlated":       correlated,
+		"request_id":       metadata.RequestID,
+		"tool_name":        metadata.ToolName,
+		"requested_remote": metadata.RequestedRemote,
+		"resolved_target":  target,
+		"command_hash":     metadata.CommandHash,
+		"started_at":       metadata.StartedAt.Format(time.RFC3339Nano),
+		"finished_at":      finishedAt(),
 	}
 
 	if captureStderr {
@@ -230,7 +245,7 @@ func (e *Executor) Execute(request mcp.CallToolRequest) (*mcp.CallToolResult, er
 			location += " " + remoteSpec.Path
 		}
 	}
-	fallbackText := fmt.Sprintf("Command executed on %s.\nInvocation ID: %s\nExecution Mode: %s", location, invocationID, executionMode)
+	fallbackText := fmt.Sprintf("Command executed on %s.\nRequest ID: %s\nTool: %s\nRequested Remote: %s\nResolved Target: %s\nCommand Hash: %s\nInvocation ID: %s\nExecution Mode: %s", location, metadata.RequestID, metadata.ToolName, metadata.RequestedRemote, target, metadata.CommandHash, invocationID, executionMode)
 	if target != "" {
 		fallbackText += fmt.Sprintf("\nTarget: %s", target)
 	}

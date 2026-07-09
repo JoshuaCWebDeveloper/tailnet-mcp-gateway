@@ -1,12 +1,17 @@
 package executor
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"mcp-terminal-server/config"
+	"mcp-terminal-server/trace"
 )
 
 func TestExecuteIncludesCorrelationAndRemoteMetadata(t *testing.T) {
@@ -44,6 +49,15 @@ func TestExecuteIncludesCorrelationAndRemoteMetadata(t *testing.T) {
 	}
 	if got := structured["correlated"]; got != true {
 		t.Fatalf("correlated = %v, want true", got)
+	}
+	if got := structured["request_id"].(string); !strings.HasPrefix(got, "req_") {
+		t.Fatalf("request_id = %q, want req_ prefix", got)
+	}
+	if got := structured["tool_name"]; got != "execute_command" {
+		t.Fatalf("tool_name = %q, want execute_command", got)
+	}
+	if got := structured["requested_remote"]; got != "" {
+		t.Fatalf("requested_remote = %q, want empty", got)
 	}
 	invocationID, ok := structured["invocation_id"].(string)
 	if !ok || !strings.HasPrefix(invocationID, "mcp_") {
@@ -155,5 +169,86 @@ func TestExecuteReturnsToolErrorWhenMarkersAreMissing(t *testing.T) {
 	structured := result.StructuredContent.(map[string]interface{})
 	if got := structured["correlated"]; got != false {
 		t.Fatalf("correlated = %v, want false", got)
+	}
+}
+
+func TestExecuteWithMetadataUsesRequestMetadata(t *testing.T) {
+	cfg := config.NewConfig()
+	e := New(cfg)
+	command := "printf metadata-output"
+	metadata := trace.NewMetadata("execute_command", "requested-host", command)
+
+	result, err := e.ExecuteWithMetadata(mcp.CallToolRequest{
+		Params: mcp.CallToolParams{Arguments: map[string]any{"command": command}},
+	}, metadata)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	structured := result.StructuredContent.(map[string]interface{})
+	if got := structured["request_id"]; got != metadata.RequestID {
+		t.Fatalf("request_id = %q, want %q", got, metadata.RequestID)
+	}
+	if got := structured["requested_remote"]; got != "requested-host" {
+		t.Fatalf("requested_remote = %q, want requested-host", got)
+	}
+	sum := sha256.Sum256([]byte(command))
+	if got := structured["command_hash"]; got != hex.EncodeToString(sum[:]) {
+		t.Fatalf("command_hash = %q, want %q", got, hex.EncodeToString(sum[:]))
+	}
+	text := result.Content[0].(mcp.TextContent).Text
+	if !strings.Contains(text, "Request ID: "+metadata.RequestID) || !strings.Contains(text, "Requested Remote: requested-host") {
+		t.Fatalf("fallback text missing request metadata: %s", text)
+	}
+}
+
+func TestConcurrentExecuteResultsStayIsolated(t *testing.T) {
+	cfg := config.NewConfig()
+	e := New(cfg)
+	const count = 20
+	var wg sync.WaitGroup
+	errs := make(chan string, count)
+	requestIDs := make(chan string, count)
+
+	for i := 0; i < count; i++ {
+		i := i
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			marker := fmt.Sprintf("CONCURRENT_MARKER_%02d", i)
+			command := fmt.Sprintf("sleep 0.%02d; printf %s", count-i, marker)
+			result, err := e.Execute(mcp.CallToolRequest{Params: mcp.CallToolParams{Arguments: map[string]any{"command": command}}})
+			if err != nil {
+				errs <- fmt.Sprintf("%s returned error: %v", marker, err)
+				return
+			}
+			structured := result.StructuredContent.(map[string]interface{})
+			if got := structured["stdout"]; got != marker {
+				errs <- fmt.Sprintf("%s got stdout %q", marker, got)
+				return
+			}
+			requestID, ok := structured["request_id"].(string)
+			if !ok || requestID == "" {
+				errs <- fmt.Sprintf("%s missing request_id", marker)
+				return
+			}
+			requestIDs <- requestID
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	close(requestIDs)
+	for err := range errs {
+		t.Fatal(err)
+	}
+	seen := map[string]bool{}
+	for requestID := range requestIDs {
+		if seen[requestID] {
+			t.Fatalf("duplicate request_id %q", requestID)
+		}
+		seen[requestID] = true
+	}
+	if len(seen) != count {
+		t.Fatalf("saw %d request IDs, want %d", len(seen), count)
 	}
 }

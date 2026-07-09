@@ -17,6 +17,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"mcp-terminal-server/config"
 	"mcp-terminal-server/remote"
+	"mcp-terminal-server/trace"
 )
 
 // ShellSession represents a persistent shell session
@@ -147,6 +148,13 @@ func (sm *Manager) GetOrCreateSession(sessionID string, shell string, remoteRaw 
 
 // ExecuteCommand executes a command in a persistent shell session
 func (sm *Manager) ExecuteCommand(sessionID string, command string, timeout time.Duration, shell string, remoteRaw string, captureStderr bool) (*mcp.CallToolResult, error) {
+	return sm.ExecuteCommandWithMetadata(sessionID, command, timeout, shell, remoteRaw, captureStderr, trace.Metadata{})
+}
+
+func (sm *Manager) ExecuteCommandWithMetadata(sessionID string, command string, timeout time.Duration, shell string, remoteRaw string, captureStderr bool, metadata trace.Metadata) (*mcp.CallToolResult, error) {
+	metadata = metadata.WithDefaults("persistent_shell", remoteRaw, command)
+	finishedAt := func() string { return time.Now().UTC().Format(time.RFC3339Nano) }
+
 	session, err := sm.GetOrCreateSession(sessionID, shell, remoteRaw)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to get session: %v", err)), nil
@@ -244,18 +252,25 @@ func (sm *Manager) ExecuteCommand(sessionID string, command string, timeout time
 		}
 
 		structured := map[string]interface{}{
-			"stdout":          trimmedOutput,
-			"session_id":      sessionID,
-			"shell":           session.Shell,
-			"pid":             session.Cmd.Process.Pid,
-			"timeout_seconds": timeout.Seconds(),
-			"timed_out":       false,
-			"exit_code":       output.exitCode,
-			"correlated":      true,
-			"invocation_id":   invocationID,
-			"execution_mode":  executionMode,
-			"target":          target,
-			"remote_path":     remotePath,
+			"stdout":           trimmedOutput,
+			"session_id":       sessionID,
+			"shell":            session.Shell,
+			"pid":              session.Cmd.Process.Pid,
+			"timeout_seconds":  timeout.Seconds(),
+			"timed_out":        false,
+			"exit_code":        output.exitCode,
+			"correlated":       true,
+			"invocation_id":    invocationID,
+			"execution_mode":   executionMode,
+			"target":           target,
+			"remote_path":      remotePath,
+			"request_id":       metadata.RequestID,
+			"tool_name":        metadata.ToolName,
+			"requested_remote": metadata.RequestedRemote,
+			"resolved_target":  target,
+			"command_hash":     metadata.CommandHash,
+			"started_at":       metadata.StartedAt.Format(time.RFC3339Nano),
+			"finished_at":      finishedAt(),
 		}
 
 		location := "local"
@@ -265,8 +280,8 @@ func (sm *Manager) ExecuteCommand(sessionID string, command string, timeout time
 				location += " " + session.Remote.Path
 			}
 		}
-		result := fmt.Sprintf("Command executed in persistent shell on %s.\nInvocation ID: %s\nExecution Mode: %s",
-			location, invocationID, executionMode)
+		result := fmt.Sprintf("Command executed in persistent shell on %s.\nRequest ID: %s\nTool: %s\nRequested Remote: %s\nResolved Target: %s\nCommand Hash: %s\nInvocation ID: %s\nExecution Mode: %s",
+			location, metadata.RequestID, metadata.ToolName, metadata.RequestedRemote, target, metadata.CommandHash, invocationID, executionMode)
 		if target != "" {
 			result += fmt.Sprintf("\nTarget: %s", target)
 		}
