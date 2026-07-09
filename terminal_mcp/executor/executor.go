@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -25,6 +26,12 @@ func New(cfg *config.Config) *Executor {
 	}
 }
 
+var invocationCounter atomic.Uint64
+
+func newInvocationID() string {
+	return fmt.Sprintf("mcp_%d_%d", time.Now().UnixNano(), invocationCounter.Add(1))
+}
+
 // Execute executes a command in a non-persistent manner
 func (e *Executor) Execute(request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	args := request.GetArguments()
@@ -33,6 +40,8 @@ func (e *Executor) Execute(request mcp.CallToolRequest) (*mcp.CallToolResult, er
 	if !ok || command == "" {
 		return mcp.NewToolResultError("Command is required"), nil
 	}
+
+	invocationID := newInvocationID()
 
 	// Get timeout
 	timeout := e.config.DefaultTimeout
@@ -102,6 +111,15 @@ func (e *Executor) Execute(request mcp.CallToolRequest) (*mcp.CallToolResult, er
 
 	err = cmd.Run()
 
+	executionMode := "local"
+	target := ""
+	remotePath := ""
+	if remoteSpec.Raw != "" {
+		executionMode = "remote"
+		target = remoteSpec.Target
+		remotePath = remoteSpec.Path
+	}
+
 	result := map[string]interface{}{
 		"stdout":          stdout.String(),
 		"stderr":          "",
@@ -111,6 +129,10 @@ func (e *Executor) Execute(request mcp.CallToolRequest) (*mcp.CallToolResult, er
 		"platform":        e.config.Platform,
 		"shell":           shell,
 		"timeout_seconds": timeout.Seconds(),
+		"invocation_id":   invocationID,
+		"execution_mode":  executionMode,
+		"target":          target,
+		"remote_path":     remotePath,
 	}
 
 	if captureStderr {
@@ -135,8 +157,18 @@ func (e *Executor) Execute(request mcp.CallToolRequest) (*mcp.CallToolResult, er
 			location += " " + remoteSpec.Path
 		}
 	}
-	fallbackText := fmt.Sprintf("Command executed on %s.\nOutput: %s\nExit Code: %v\nPlatform: %s\nShell: %s",
-		location, result["stdout"], result["exit_code"], result["platform"], result["shell"])
+	fallbackText := fmt.Sprintf("Command executed on %s.\nInvocation ID: %s\nExecution Mode: %s", location, invocationID, executionMode)
+	if target != "" {
+		fallbackText += fmt.Sprintf("\nTarget: %s", target)
+	}
+	fallbackText += fmt.Sprintf("\nOutput: %s", result["stdout"])
+	if result["stderr"] != "" {
+		fallbackText += fmt.Sprintf("\nStderr: %s", result["stderr"])
+	}
+	if result["error"] != "" {
+		fallbackText += fmt.Sprintf("\nError: %s", result["error"])
+	}
+	fallbackText += fmt.Sprintf("\nExit Code: %v\nPlatform: %s\nShell: %s", result["exit_code"], result["platform"], result["shell"])
 
 	return mcp.NewToolResultStructured(result, fallbackText), nil
 }

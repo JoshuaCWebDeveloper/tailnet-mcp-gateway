@@ -223,7 +223,11 @@ func (r *Registry) GetToolSchemas() []map[string]interface{} {
 					},
 					"shell": map[string]interface{}{
 						"type":        "string",
-						"description": "Shell to use for execution (optional, defaults to system shell)",
+						"description": "Shell to use for local execution (optional, defaults to system shell)",
+					},
+					"remote": map[string]interface{}{
+						"type":        "string",
+						"description": "Optional SSH remote target in the form [user@]host[:port][/path]. When set, execute the command on the remote host instead of locally. If /path is supplied, cd to that path before running the command.",
 					},
 					"capture_stderr": map[string]interface{}{
 						"type":        "boolean",
@@ -254,7 +258,11 @@ func (r *Registry) GetToolSchemas() []map[string]interface{} {
 					},
 					"shell": map[string]interface{}{
 						"type":        "string",
-						"description": "Shell to use for execution (optional, defaults to system shell)",
+						"description": "Shell to use for local sessions (optional, defaults to system shell)",
+					},
+					"remote": map[string]interface{}{
+						"type":        "string",
+						"description": "Optional SSH remote target in the form [user@]host[:port][/path]. When set, maintain the persistent session over SSH. If /path is supplied, cd to that path before each command.",
 					},
 				},
 				"required": []string{"command", "session_id"},
