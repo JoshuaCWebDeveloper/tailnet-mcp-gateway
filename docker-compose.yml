@@ -23,6 +23,7 @@ services:
       MCP_SHELL: ${MCP_SHELL:-/bin/bash}
       MCP_COMMAND_TIMEOUT: ${MCP_COMMAND_TIMEOUT:-300}
       TUNNEL_HEALTH_ADDR: ${TUNNEL_HEALTH_ADDR:-0.0.0.0:8080}
+      MCP_MAX_CONCURRENT_REQUESTS: ${MCP_MAX_CONCURRENT_REQUESTS:-1}
 
     volumes:
       - ./tailscale-state:/var/lib/tailscale

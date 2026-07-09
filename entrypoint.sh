@@ -10,6 +10,7 @@ TS_STATE_DIR="${TS_STATE_DIR:-/var/lib/tailscale}"
 TS_SOCKET="${TS_SOCKET:-/var/run/tailscale/tailscaled.sock}"
 TS_EXTRA_ARGS="${TS_EXTRA_ARGS:-}"
 TUNNEL_HEALTH_ADDR="${TUNNEL_HEALTH_ADDR:-0.0.0.0:8080}"
+MCP_MAX_CONCURRENT_REQUESTS="${MCP_MAX_CONCURRENT_REQUESTS:-1}"
 
 cleanup() {
   if [[ -n "${TAILSCALED_PID:-}" ]]; then
@@ -48,4 +49,5 @@ exec tunnel-client run \
   --control-plane.tunnel-id="${CONTROL_PLANE_TUNNEL_ID}" \
   --control-plane.api-key="env:CONTROL_PLANE_API_KEY" \
   --health.listen-addr="${TUNNEL_HEALTH_ADDR}" \
+  --mcp.max-concurrent-requests="${MCP_MAX_CONCURRENT_REQUESTS}" \
   --mcp.command="/usr/local/bin/mcp-terminal-server"
