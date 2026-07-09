@@ -80,6 +80,35 @@ func unwrapCommandOutput(stdout string, invocationID string) (string, int, bool)
 	return output, exitCode, true
 }
 
+func metadataToolError(message string, metadata trace.Metadata) *mcp.CallToolResult {
+	fallbackText := fmt.Sprintf("%s\nRequest ID: %s\nTool: %s\nRequested Remote: %s\nCommand Hash: %s", message, metadata.RequestID, metadata.ToolName, metadata.RequestedRemote, metadata.CommandHash)
+	structured := map[string]interface{}{
+		"stdout":           "",
+		"stderr":           "",
+		"exit_code":        -1,
+		"error":            message,
+		"timed_out":        false,
+		"platform":         "",
+		"shell":            "",
+		"timeout_seconds":  0,
+		"invocation_id":    "",
+		"execution_mode":   "",
+		"target":           "",
+		"remote_path":      "",
+		"correlated":       false,
+		"request_id":       metadata.RequestID,
+		"tool_name":        metadata.ToolName,
+		"requested_remote": metadata.RequestedRemote,
+		"resolved_target":  "",
+		"command_hash":     metadata.CommandHash,
+		"started_at":       metadata.StartedAt.Format(time.RFC3339Nano),
+		"finished_at":      time.Now().UTC().Format(time.RFC3339Nano),
+	}
+	result := mcp.NewToolResultStructured(structured, fallbackText)
+	result.IsError = true
+	return result
+}
+
 // Execute executes a command in a non-persistent manner
 func (e *Executor) Execute(request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return e.ExecuteWithMetadata(request, trace.Metadata{})
@@ -89,9 +118,6 @@ func (e *Executor) ExecuteWithMetadata(request mcp.CallToolRequest, metadata tra
 	args := request.GetArguments()
 
 	command, ok := args["command"].(string)
-	if !ok || command == "" {
-		return mcp.NewToolResultError("Command is required"), nil
-	}
 
 	// Get optional remote target
 	remoteRaw := ""
@@ -99,6 +125,9 @@ func (e *Executor) ExecuteWithMetadata(request mcp.CallToolRequest, metadata tra
 		remoteRaw = remoteArg
 	}
 	metadata = metadata.WithDefaults("execute_command", remoteRaw, command)
+	if !ok || command == "" {
+		return metadataToolError("Command is required", metadata), nil
+	}
 	finishedAt := func() string { return time.Now().UTC().Format(time.RFC3339Nano) }
 
 	invocationID := newInvocationID()
@@ -124,7 +153,7 @@ func (e *Executor) ExecuteWithMetadata(request mcp.CallToolRequest, metadata tra
 
 	remoteSpec, err := remote.Parse(remoteRaw)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Invalid remote: %v", err)), nil
+		return metadataToolError(fmt.Sprintf("Invalid remote: %v", err), metadata), nil
 	}
 
 	// Create context with timeout
@@ -138,7 +167,7 @@ func (e *Executor) ExecuteWithMetadata(request mcp.CallToolRequest, metadata tra
 		if remoteSpec.Raw != "" {
 			sshArgs, err := remoteSpec.SSHArgs()
 			if err != nil {
-				return mcp.NewToolResultError(fmt.Sprintf("Invalid remote: %v", err)), nil
+				return metadataToolError(fmt.Sprintf("Invalid remote: %v", err), metadata), nil
 			}
 			sshArgs = append(sshArgs, remoteSpec.Command(wrappedCommand))
 			cmd = exec.CommandContext(ctx, "ssh", sshArgs...)
@@ -146,7 +175,7 @@ func (e *Executor) ExecuteWithMetadata(request mcp.CallToolRequest, metadata tra
 			cmd = exec.CommandContext(ctx, shell, "-c", wrappedCommand)
 		}
 	default:
-		return mcp.NewToolResultError(fmt.Sprintf("Platform %s not supported", e.config.Platform)), nil
+		return metadataToolError(fmt.Sprintf("Platform %s not supported", e.config.Platform), metadata), nil
 	}
 
 	// Set up environment variables

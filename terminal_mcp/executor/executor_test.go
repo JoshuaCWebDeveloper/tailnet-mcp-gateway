@@ -252,3 +252,29 @@ func TestConcurrentExecuteResultsStayIsolated(t *testing.T) {
 		t.Fatalf("saw %d request IDs, want %d", len(seen), count)
 	}
 }
+
+func TestExecuteValidationErrorIncludesRequestMetadata(t *testing.T) {
+	cfg := config.NewConfig()
+	e := New(cfg)
+	metadata := trace.NewMetadata("execute_command", "bad/remote", "")
+
+	result, err := e.ExecuteWithMetadata(mcp.CallToolRequest{
+		Params: mcp.CallToolParams{Arguments: map[string]any{"remote": "bad/remote"}},
+	}, metadata)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatalf("expected validation error to be marked as tool error")
+	}
+	structured := result.StructuredContent.(map[string]interface{})
+	if got := structured["request_id"]; got != metadata.RequestID {
+		t.Fatalf("request_id = %q, want %q", got, metadata.RequestID)
+	}
+	if got := structured["requested_remote"]; got != "bad/remote" {
+		t.Fatalf("requested_remote = %q, want bad/remote", got)
+	}
+	if got := structured["error"]; got != "Command is required" {
+		t.Fatalf("error = %q, want Command is required", got)
+	}
+}
