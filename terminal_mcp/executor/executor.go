@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -32,6 +33,52 @@ func newInvocationID() string {
 	return fmt.Sprintf("mcp_%d_%d", time.Now().UnixNano(), invocationCounter.Add(1))
 }
 
+func startMarker(invocationID string) string {
+	return "__MCP_START_" + invocationID + "__"
+}
+
+func endMarker(invocationID string) string {
+	return "__MCP_END_" + invocationID + "__"
+}
+
+var wrapCommand = func(command string, invocationID string) string {
+	return fmt.Sprintf(
+		"printf '%%s\n' %s\n(\n%s\n)\n__mcp_status=$?\nprintf '\n%%s:%%s\n' %s \"$__mcp_status\"\nexit \"$__mcp_status\"",
+		strconv.Quote(startMarker(invocationID)),
+		command,
+		strconv.Quote(endMarker(invocationID)),
+	)
+}
+
+func unwrapCommandOutput(stdout string, invocationID string) (string, int, bool) {
+	start := startMarker(invocationID) + "\n"
+	startIndex := strings.Index(stdout, start)
+	if startIndex < 0 {
+		return stdout, -1, false
+	}
+
+	payload := stdout[startIndex+len(start):]
+	endPrefix := "\n" + endMarker(invocationID) + ":"
+	endIndex := strings.LastIndex(payload, endPrefix)
+	if endIndex < 0 {
+		return payload, -1, false
+	}
+
+	output := payload[:endIndex]
+	statusStart := endIndex + len(endPrefix)
+	statusEnd := strings.IndexByte(payload[statusStart:], '\n')
+	if statusEnd < 0 {
+		return output, -1, false
+	}
+
+	exitCode, err := strconv.Atoi(payload[statusStart : statusStart+statusEnd])
+	if err != nil {
+		return output, -1, false
+	}
+
+	return output, exitCode, true
+}
+
 // Execute executes a command in a non-persistent manner
 func (e *Executor) Execute(request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	args := request.GetArguments()
@@ -42,6 +89,7 @@ func (e *Executor) Execute(request mcp.CallToolRequest) (*mcp.CallToolResult, er
 	}
 
 	invocationID := newInvocationID()
+	wrappedCommand := wrapCommand(command, invocationID)
 
 	// Get timeout
 	timeout := e.config.DefaultTimeout
@@ -84,10 +132,10 @@ func (e *Executor) Execute(request mcp.CallToolRequest) (*mcp.CallToolResult, er
 			if err != nil {
 				return mcp.NewToolResultError(fmt.Sprintf("Invalid remote: %v", err)), nil
 			}
-			sshArgs = append(sshArgs, remoteSpec.Command(command))
+			sshArgs = append(sshArgs, remoteSpec.Command(wrappedCommand))
 			cmd = exec.CommandContext(ctx, "ssh", sshArgs...)
 		} else {
-			cmd = exec.CommandContext(ctx, shell, "-c", command)
+			cmd = exec.CommandContext(ctx, shell, "-c", wrappedCommand)
 		}
 	default:
 		return mcp.NewToolResultError(fmt.Sprintf("Platform %s not supported", e.config.Platform)), nil
@@ -111,6 +159,12 @@ func (e *Executor) Execute(request mcp.CallToolRequest) (*mcp.CallToolResult, er
 
 	err = cmd.Run()
 
+	commandStdout, commandExitCode, correlated := unwrapCommandOutput(stdout.String(), invocationID)
+	if correlated && !captureStderr {
+		stdout.Reset()
+		stdout.WriteString(commandStdout)
+	}
+
 	executionMode := "local"
 	target := ""
 	remotePath := ""
@@ -133,20 +187,39 @@ func (e *Executor) Execute(request mcp.CallToolRequest) (*mcp.CallToolResult, er
 		"execution_mode":  executionMode,
 		"target":          target,
 		"remote_path":     remotePath,
+		"correlated":      correlated,
 	}
 
 	if captureStderr {
 		result["stderr"] = stderr.String()
+		if correlated {
+			result["stdout"] = commandStdout
+		}
+	}
+
+	if correlated {
+		result["exit_code"] = commandExitCode
 	}
 
 	if err != nil {
 		result["error"] = err.Error()
-		result["exit_code"] = -1
+		if !correlated {
+			result["exit_code"] = -1
+		}
 		if ctx.Err() == context.DeadlineExceeded {
 			result["timed_out"] = true
 		}
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			result["exit_code"] = exitErr.ExitCode()
+		}
+	}
+
+	if !correlated {
+		markerError := "command output did not contain matching MCP invocation markers"
+		if result["error"] == "" {
+			result["error"] = markerError
+		} else {
+			result["error"] = fmt.Sprintf("%s; %s", result["error"], markerError)
 		}
 	}
 
@@ -170,5 +243,9 @@ func (e *Executor) Execute(request mcp.CallToolRequest) (*mcp.CallToolResult, er
 	}
 	fallbackText += fmt.Sprintf("\nExit Code: %v\nPlatform: %s\nShell: %s", result["exit_code"], result["platform"], result["shell"])
 
-	return mcp.NewToolResultStructured(result, fallbackText), nil
+	toolResult := mcp.NewToolResultStructured(result, fallbackText)
+	if !correlated {
+		toolResult.IsError = true
+	}
+	return toolResult, nil
 }

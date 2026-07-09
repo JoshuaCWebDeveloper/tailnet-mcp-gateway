@@ -16,9 +16,10 @@ var executeCommandOutputSchema = json.RawMessage(`{
     "invocation_id": {"type": "string", "description": "Unique identifier generated for this command invocation."},
     "execution_mode": {"type": "string", "enum": ["local", "remote"], "description": "Whether the command ran locally or through SSH."},
     "target": {"type": "string", "description": "SSH target for remote commands, otherwise empty."},
-    "remote_path": {"type": "string", "description": "Remote working directory path, otherwise empty."}
+    "remote_path": {"type": "string", "description": "Remote working directory path, otherwise empty."},
+    "correlated": {"type": "boolean", "description": "Whether stdout contained the matching MCP invocation markers for this command."}
   },
-  "required": ["stdout", "stderr", "exit_code", "error", "timed_out", "platform", "shell", "timeout_seconds", "invocation_id", "execution_mode", "target", "remote_path"],
+  "required": ["stdout", "stderr", "exit_code", "error", "timed_out", "platform", "shell", "timeout_seconds", "invocation_id", "execution_mode", "target", "remote_path", "correlated"],
   "additionalProperties": false
 }`)
 
@@ -31,12 +32,14 @@ var persistentShellOutputSchema = json.RawMessage(`{
     "pid": {"type": "integer", "description": "Process ID for the persistent shell."},
     "timeout_seconds": {"type": "number", "description": "Timeout used while waiting for command output, in seconds."},
     "timed_out": {"type": "boolean", "description": "Whether the command exceeded the configured timeout."},
+    "exit_code": {"type": "integer", "description": "Process exit code reported by the persistent shell command wrapper."},
+    "correlated": {"type": "boolean", "description": "Whether output was bounded by the matching MCP invocation markers for this command."},
     "invocation_id": {"type": "string", "description": "Unique identifier generated for this persistent-shell command invocation."},
     "execution_mode": {"type": "string", "enum": ["local", "remote"], "description": "Whether the session is local or remote over SSH."},
     "target": {"type": "string", "description": "SSH target for remote sessions, otherwise empty."},
     "remote_path": {"type": "string", "description": "Remote working directory path, otherwise empty."}
   },
-  "required": ["stdout", "session_id", "shell", "pid", "timeout_seconds", "timed_out", "invocation_id", "execution_mode", "target", "remote_path"],
+  "required": ["stdout", "session_id", "shell", "pid", "timeout_seconds", "timed_out", "exit_code", "correlated", "invocation_id", "execution_mode", "target", "remote_path"],
   "additionalProperties": false
 }`)
 
