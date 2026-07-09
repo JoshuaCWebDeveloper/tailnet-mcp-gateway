@@ -3,12 +3,17 @@
 ARG GO_VERSION=1.26.2
 
 FROM golang:${GO_VERSION}-bookworm AS tunnel-builder
+ARG TUNNEL_CLIENT_REF=baaea561a4a006d71e8b142e3826925d74e1316a
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     git \
  && rm -rf /var/lib/apt/lists/*
 WORKDIR /src/tunnel-client
-RUN git clone --depth=1 https://github.com/openai/tunnel-client.git .
+RUN git init . \
+ && git remote add origin https://github.com/openai/tunnel-client.git \
+ && git fetch --depth=1 origin "${TUNNEL_CLIENT_REF}" \
+ && git checkout --detach FETCH_HEAD
+RUN grep -q 'binding.TransportKind == config.MCPTransportStdio' pkg/dispatcher/fxmodule.go
 RUN go build -o /out/tunnel-client ./cmd/client
 
 FROM golang:${GO_VERSION}-bookworm AS terminal-builder
