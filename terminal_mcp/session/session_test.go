@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"mcp-terminal-server/config"
+	"mcp-terminal-server/trace"
 )
 
 func TestPersistentShellSequentialCommandsAreCorrelated(t *testing.T) {
@@ -139,5 +140,30 @@ func TestPersistentShellExitClosesSession(t *testing.T) {
 	sm.mu.RUnlock()
 	if exists {
 		t.Fatalf("dead session still exists")
+	}
+}
+
+func TestPersistentShellWithMetadataUsesRequestMetadata(t *testing.T) {
+	cfg := config.NewConfig()
+	sm := NewManager(cfg)
+	command := "echo metadata-session"
+	metadata := trace.NewMetadata("persistent_shell", "requested-remote", command)
+
+	result, err := sm.ExecuteCommandWithMetadata("metadata", command, 5*time.Second, cfg.Shell, "", false, metadata)
+	if err != nil {
+		t.Fatalf("command returned error: %v", err)
+	}
+	structured := result.StructuredContent.(map[string]interface{})
+	if got := structured["request_id"]; got != metadata.RequestID {
+		t.Fatalf("request_id = %q, want %q", got, metadata.RequestID)
+	}
+	if got := structured["requested_remote"]; got != "requested-remote" {
+		t.Fatalf("requested_remote = %q, want requested-remote", got)
+	}
+	if got := structured["tool_name"]; got != "persistent_shell" {
+		t.Fatalf("tool_name = %q, want persistent_shell", got)
+	}
+	if err := sm.CloseSession("metadata"); err != nil {
+		t.Fatalf("failed to close session: %v", err)
 	}
 }

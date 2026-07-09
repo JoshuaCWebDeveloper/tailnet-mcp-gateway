@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -10,6 +11,7 @@ import (
 	"mcp-terminal-server/config"
 	"mcp-terminal-server/executor"
 	"mcp-terminal-server/session"
+	"mcp-terminal-server/trace"
 )
 
 // Registry holds all the tools and their dependencies
@@ -97,7 +99,20 @@ func (r *Registry) RegisterTools(s *server.MCPServer) {
 
 // handleExecuteCommand handles non-persistent command execution
 func (r *Registry) handleExecuteCommand(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	return r.executor.Execute(request)
+	args := request.GetArguments()
+	command := ""
+	if commandArg, ok := args["command"].(string); ok {
+		command = commandArg
+	}
+	remote := ""
+	if remoteArg, ok := args["remote"].(string); ok {
+		remote = remoteArg
+	}
+	metadata := trace.NewMetadata("execute_command", remote, command)
+	log.Printf("tool_request start request_id=%s tool=execute_command requested_remote=%q command_hash=%s", metadata.RequestID, remote, metadata.CommandHash)
+	result, err := r.executor.ExecuteWithMetadata(request, metadata)
+	log.Printf("tool_request finish request_id=%s tool=execute_command err=%v", metadata.RequestID, err)
+	return result, err
 }
 
 // handlePersistentShell handles persistent shell command execution
@@ -131,7 +146,11 @@ func (r *Registry) handlePersistentShell(ctx context.Context, request mcp.CallTo
 		remote = remoteArg
 	}
 
-	return r.sessionManager.ExecuteCommand(sessionID, command, timeout, shell, remote, false)
+	metadata := trace.NewMetadata("persistent_shell", remote, command)
+	log.Printf("tool_request start request_id=%s tool=persistent_shell session_id=%s requested_remote=%q command_hash=%s", metadata.RequestID, sessionID, remote, metadata.CommandHash)
+	result, err := r.sessionManager.ExecuteCommandWithMetadata(sessionID, command, timeout, shell, remote, false, metadata)
+	log.Printf("tool_request finish request_id=%s tool=persistent_shell session_id=%s err=%v", metadata.RequestID, sessionID, err)
+	return result, err
 }
 
 // handleSessionManager handles session management operations

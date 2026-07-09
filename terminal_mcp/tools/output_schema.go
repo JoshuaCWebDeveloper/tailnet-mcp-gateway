@@ -17,10 +17,17 @@ var executeCommandOutputSchema = json.RawMessage(`{
     "execution_mode": {"type": "string", "enum": ["local", "remote"], "description": "Whether the command ran locally or through SSH."},
     "target": {"type": "string", "description": "SSH target for remote commands, otherwise empty."},
     "remote_path": {"type": "string", "description": "Remote working directory path, otherwise empty."},
-    "correlated": {"type": "boolean", "description": "Whether stdout contained the matching MCP invocation markers for this command."}
+    "correlated": {"type": "boolean", "description": "Whether stdout contained the matching MCP invocation markers for this command."},
+    "request_id": {"type": "string", "description": "Server-generated tool request identifier."},
+    "tool_name": {"type": "string", "description": "MCP tool name that handled the request."},
+    "requested_remote": {"type": "string", "description": "Raw remote argument requested by the client, otherwise empty."},
+    "resolved_target": {"type": "string", "description": "SSH target actually passed to ssh after remote parsing, otherwise empty."},
+    "command_hash": {"type": "string", "description": "SHA-256 hash of the command text received by the tool."},
+    "started_at": {"type": "string", "description": "Server-side request start timestamp in RFC3339Nano format."},
+    "finished_at": {"type": "string", "description": "Server-side request finish timestamp in RFC3339Nano format."}
   },
-  "required": ["stdout", "stderr", "exit_code", "error", "timed_out", "platform", "shell", "timeout_seconds", "invocation_id", "execution_mode", "target", "remote_path", "correlated"],
-  "additionalProperties": false
+  "required": ["stdout", "stderr", "exit_code", "error", "timed_out", "platform", "shell", "timeout_seconds", "invocation_id", "execution_mode", "target", "remote_path", "correlated", "request_id", "tool_name", "requested_remote", "resolved_target", "command_hash", "started_at", "finished_at"],
+  "additionalProperties": true
 }`)
 
 var persistentShellOutputSchema = json.RawMessage(`{
@@ -37,10 +44,17 @@ var persistentShellOutputSchema = json.RawMessage(`{
     "invocation_id": {"type": "string", "description": "Unique identifier generated for this persistent-shell command invocation."},
     "execution_mode": {"type": "string", "enum": ["local", "remote"], "description": "Whether the session is local or remote over SSH."},
     "target": {"type": "string", "description": "SSH target for remote sessions, otherwise empty."},
-    "remote_path": {"type": "string", "description": "Remote working directory path, otherwise empty."}
+    "remote_path": {"type": "string", "description": "Remote working directory path, otherwise empty."},
+    "request_id": {"type": "string", "description": "Server-generated tool request identifier."},
+    "tool_name": {"type": "string", "description": "MCP tool name that handled the request."},
+    "requested_remote": {"type": "string", "description": "Raw remote argument requested by the client, otherwise empty."},
+    "resolved_target": {"type": "string", "description": "SSH target actually passed to ssh after remote parsing, otherwise empty."},
+    "command_hash": {"type": "string", "description": "SHA-256 hash of the command text received by the tool."},
+    "started_at": {"type": "string", "description": "Server-side request start timestamp in RFC3339Nano format."},
+    "finished_at": {"type": "string", "description": "Server-side request finish timestamp in RFC3339Nano format."}
   },
-  "required": ["stdout", "session_id", "shell", "pid", "timeout_seconds", "timed_out", "exit_code", "correlated", "invocation_id", "execution_mode", "target", "remote_path"],
-  "additionalProperties": false
+  "required": ["stdout", "session_id", "shell", "pid", "timeout_seconds", "timed_out", "exit_code", "correlated", "invocation_id", "execution_mode", "target", "remote_path", "request_id", "tool_name", "requested_remote", "resolved_target", "command_hash", "started_at", "finished_at"],
+  "additionalProperties": true
 }`)
 
 var sessionManagerOutputSchema = json.RawMessage(`{
@@ -64,11 +78,11 @@ var sessionManagerOutputSchema = json.RawMessage(`{
           "remote_path": {"type": "string", "description": "Remote working directory path, otherwise empty."}
         },
         "required": ["id", "shell", "pid", "created", "last_used", "alive", "remote", "remote_path"],
-        "additionalProperties": false
+        "additionalProperties": true
       }
     },
     "closed_session_id": {"type": "string", "description": "Closed session identifier for close actions, otherwise empty."}
   },
   "required": ["action", "message", "sessions", "closed_session_id"],
-  "additionalProperties": false
+  "additionalProperties": true
 }`)
