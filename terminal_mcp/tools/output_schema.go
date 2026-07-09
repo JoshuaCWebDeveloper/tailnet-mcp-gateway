@@ -12,9 +12,13 @@ var executeCommandOutputSchema = json.RawMessage(`{
     "timed_out": {"type": "boolean", "description": "Whether the command exceeded the configured timeout."},
     "platform": {"type": "string", "description": "Runtime operating system platform."},
     "shell": {"type": "string", "description": "Shell used to run the command."},
-    "timeout_seconds": {"type": "number", "description": "Timeout used for the command, in seconds."}
+    "timeout_seconds": {"type": "number", "description": "Timeout used for the command, in seconds."},
+    "invocation_id": {"type": "string", "description": "Unique identifier generated for this command invocation."},
+    "execution_mode": {"type": "string", "enum": ["local", "remote"], "description": "Whether the command ran locally or through SSH."},
+    "target": {"type": "string", "description": "SSH target for remote commands, otherwise empty."},
+    "remote_path": {"type": "string", "description": "Remote working directory path, otherwise empty."}
   },
-  "required": ["stdout", "stderr", "exit_code", "error", "timed_out", "platform", "shell", "timeout_seconds"],
+  "required": ["stdout", "stderr", "exit_code", "error", "timed_out", "platform", "shell", "timeout_seconds", "invocation_id", "execution_mode", "target", "remote_path"],
   "additionalProperties": false
 }`)
 
@@ -26,9 +30,13 @@ var persistentShellOutputSchema = json.RawMessage(`{
     "shell": {"type": "string", "description": "Shell used by the persistent session."},
     "pid": {"type": "integer", "description": "Process ID for the persistent shell."},
     "timeout_seconds": {"type": "number", "description": "Timeout used while waiting for command output, in seconds."},
-    "timed_out": {"type": "boolean", "description": "Whether the command exceeded the configured timeout."}
+    "timed_out": {"type": "boolean", "description": "Whether the command exceeded the configured timeout."},
+    "invocation_id": {"type": "string", "description": "Unique identifier generated for this persistent-shell command invocation."},
+    "execution_mode": {"type": "string", "enum": ["local", "remote"], "description": "Whether the session is local or remote over SSH."},
+    "target": {"type": "string", "description": "SSH target for remote sessions, otherwise empty."},
+    "remote_path": {"type": "string", "description": "Remote working directory path, otherwise empty."}
   },
-  "required": ["stdout", "session_id", "shell", "pid", "timeout_seconds", "timed_out"],
+  "required": ["stdout", "session_id", "shell", "pid", "timeout_seconds", "timed_out", "invocation_id", "execution_mode", "target", "remote_path"],
   "additionalProperties": false
 }`)
 
@@ -48,9 +56,11 @@ var sessionManagerOutputSchema = json.RawMessage(`{
           "pid": {"type": "integer", "description": "Process ID for the persistent shell."},
           "created": {"type": "string", "description": "Session creation timestamp in RFC3339 format."},
           "last_used": {"type": "string", "description": "Last-used timestamp in RFC3339 format."},
-          "alive": {"type": "boolean", "description": "Whether the shell process is still alive."}
+          "alive": {"type": "boolean", "description": "Whether the shell process is still alive."},
+          "remote": {"type": "string", "description": "SSH target for remote sessions, otherwise empty."},
+          "remote_path": {"type": "string", "description": "Remote working directory path, otherwise empty."}
         },
-        "required": ["id", "shell", "pid", "created", "last_used", "alive"],
+        "required": ["id", "shell", "pid", "created", "last_used", "alive", "remote", "remote_path"],
         "additionalProperties": false
       }
     },

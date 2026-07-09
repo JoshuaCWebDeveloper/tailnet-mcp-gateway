@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -19,24 +20,26 @@ import (
 
 // ShellSession represents a persistent shell session
 type ShellSession struct {
-	ID          string
-	Cmd         *exec.Cmd
-	Stdin       io.WriteCloser
-	Stdout      io.ReadCloser
-	Stderr      io.ReadCloser
-	WorkingDir  string
-	Shell       string
-	Remote      remote.Spec
-	Created     time.Time
-	LastUsed    time.Time
-	mu          sync.Mutex
+	ID         string
+	Cmd        *exec.Cmd
+	Stdin      io.WriteCloser
+	Stdout     io.ReadCloser
+	Stderr     io.ReadCloser
+	Reader     *bufio.Reader
+	WorkingDir string
+	Shell      string
+	Remote     remote.Spec
+	Created    time.Time
+	LastUsed   time.Time
+	mu         sync.Mutex
 }
 
 // Manager manages persistent shell sessions
 type Manager struct {
-	sessions map[string]*ShellSession
-	mu       sync.RWMutex
-	config   *config.Config
+	sessions          map[string]*ShellSession
+	mu                sync.RWMutex
+	config            *config.Config
+	invocationCounter atomic.Uint64
 }
 
 // NewManager creates a new session manager
@@ -124,6 +127,7 @@ func (sm *Manager) GetOrCreateSession(sessionID string, shell string, remoteRaw 
 		Stdin:      stdin,
 		Stdout:     stdout,
 		Stderr:     stderr,
+		Reader:     bufio.NewReader(stdout),
 		WorkingDir: "",
 		Shell:      shell,
 		Remote:     remoteSpec,
@@ -156,13 +160,14 @@ func (sm *Manager) ExecuteCommand(sessionID string, command string, timeout time
 		return mcp.NewToolResultError("Shell session died, please retry"), nil
 	}
 
-	commandMarker := fmt.Sprintf("MCPCMD_%d", time.Now().UnixNano())
+	invocationID := fmt.Sprintf("mcp_%d_%d", time.Now().UnixNano(), sm.invocationCounter.Add(1))
+	doneMarker := invocationID + "_DONE"
 
 	commandToRun := command
 	if session.Remote.Raw != "" {
 		commandToRun = session.Remote.Command(command)
 	}
-	fullCommand := fmt.Sprintf("%s\necho %s_DONE\n", commandToRun, commandMarker)
+	fullCommand := fmt.Sprintf("{\n%s\n} 2>&1\necho %s\n", commandToRun, doneMarker)
 
 	if _, err := session.Stdin.Write([]byte(fullCommand)); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to write command: %v", err)), nil
@@ -176,11 +181,18 @@ func (sm *Manager) ExecuteCommand(sessionID string, command string, timeout time
 
 	go func() {
 		var output strings.Builder
-		scanner := bufio.NewScanner(session.Stdout)
-		doneMarker := commandMarker + "_DONE"
+		for {
+			line, err := session.Reader.ReadString('\n')
+			if err != nil {
+				if err == io.EOF && line != "" {
+					output.WriteString(line)
+				}
+				errorChan <- err
+				return
+			}
 
-		for scanner.Scan() {
-			line := scanner.Text()
+			line = strings.TrimSuffix(line, "\n")
+			line = strings.TrimSuffix(line, "\r")
 			if line == doneMarker {
 				outputChan <- output.String()
 				return
@@ -188,19 +200,21 @@ func (sm *Manager) ExecuteCommand(sessionID string, command string, timeout time
 			output.WriteString(line)
 			output.WriteString("\n")
 		}
-
-		if err := scanner.Err(); err != nil {
-			errorChan <- err
-			return
-		}
-
-		outputChan <- output.String()
 	}()
 
 	select {
 	case output := <-outputChan:
 		session.LastUsed = time.Now()
 		trimmedOutput := strings.TrimSpace(output)
+		executionMode := "local"
+		target := ""
+		remotePath := ""
+		if session.Remote.Raw != "" {
+			executionMode = "remote"
+			target = session.Remote.Target
+			remotePath = session.Remote.Path
+		}
+
 		structured := map[string]interface{}{
 			"stdout":          trimmedOutput,
 			"session_id":      sessionID,
@@ -208,6 +222,10 @@ func (sm *Manager) ExecuteCommand(sessionID string, command string, timeout time
 			"pid":             session.Cmd.Process.Pid,
 			"timeout_seconds": timeout.Seconds(),
 			"timed_out":       false,
+			"invocation_id":   invocationID,
+			"execution_mode":  executionMode,
+			"target":          target,
+			"remote_path":     remotePath,
 		}
 
 		location := "local"
@@ -217,8 +235,12 @@ func (sm *Manager) ExecuteCommand(sessionID string, command string, timeout time
 				location += " " + session.Remote.Path
 			}
 		}
-		result := fmt.Sprintf("Command executed in persistent shell on %s.\nOutput: %s\nSession ID: %s\nShell: %s (PID: %d)",
-			location, trimmedOutput, sessionID, session.Shell, session.Cmd.Process.Pid)
+		result := fmt.Sprintf("Command executed in persistent shell on %s.\nInvocation ID: %s\nExecution Mode: %s",
+			location, invocationID, executionMode)
+		if target != "" {
+			result += fmt.Sprintf("\nTarget: %s", target)
+		}
+		result += fmt.Sprintf("\nOutput: %s\nSession ID: %s\nShell: %s (PID: %d)", trimmedOutput, sessionID, session.Shell, session.Cmd.Process.Pid)
 
 		return mcp.NewToolResultStructured(structured, result), nil
 
@@ -226,7 +248,16 @@ func (sm *Manager) ExecuteCommand(sessionID string, command string, timeout time
 		return mcp.NewToolResultError(fmt.Sprintf("Error reading output: %v", err)), nil
 
 	case <-ctx.Done():
-		return mcp.NewToolResultError("Command timeout"), nil
+		sm.mu.Lock()
+		delete(sm.sessions, sessionID)
+		sm.mu.Unlock()
+		session.Stdin.Close()
+		session.Stdout.Close()
+		session.Stderr.Close()
+		if session.Cmd.Process != nil {
+			session.Cmd.Process.Kill()
+		}
+		return mcp.NewToolResultError(fmt.Sprintf("Command timeout; closed session %s to prevent stale output from contaminating future commands", sessionID)), nil
 	}
 }
 
