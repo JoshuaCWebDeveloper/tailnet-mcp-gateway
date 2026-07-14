@@ -80,6 +80,24 @@ func unwrapCommandOutput(stdout string, invocationID string) (string, int, bool)
 	return output, exitCode, true
 }
 
+func remoteStartupErrorMessage(remoteSpec remote.Spec, err error, output string, timedOut bool) string {
+	if remoteSpec.Raw == "" || err == nil {
+		return ""
+	}
+
+	detail := strings.TrimSpace(output)
+	if detail == "" {
+		detail = err.Error()
+	}
+
+	prefix := "remote connection failed before command execution"
+	if timedOut {
+		prefix = "remote connection timed out before command execution"
+	}
+
+	return fmt.Sprintf("%s\n\nTarget: %s\nTransport: ssh\nUnderlying error: %s\n\nNo remote command was executed.", prefix, remoteSpec.Target, detail)
+}
+
 func metadataToolError(message string, metadata trace.Metadata) *mcp.CallToolResult {
 	fallbackText := fmt.Sprintf("%s\nRequest ID: %s\nTool: %s\nRequested Remote: %s\nCommand Hash: %s", message, metadata.RequestID, metadata.ToolName, metadata.RequestedRemote, metadata.CommandHash)
 	structured := map[string]interface{}{
@@ -259,11 +277,23 @@ func (e *Executor) ExecuteWithMetadata(request mcp.CallToolRequest, metadata tra
 	}
 
 	if !correlated {
-		markerError := "command output did not contain matching MCP invocation markers"
-		if result["error"] == "" {
-			result["error"] = markerError
+		combinedOutput := stdout.String()
+		if captureStderr && stderr.String() != "" {
+			if combinedOutput != "" {
+				combinedOutput += "\n"
+			}
+			combinedOutput += stderr.String()
+		}
+
+		if startupError := remoteStartupErrorMessage(remoteSpec, err, combinedOutput, ctx.Err() == context.DeadlineExceeded); startupError != "" {
+			result["error"] = startupError
 		} else {
-			result["error"] = fmt.Sprintf("%s; %s", result["error"], markerError)
+			markerError := "command output did not contain matching MCP invocation markers"
+			if result["error"] == "" {
+				result["error"] = markerError
+			} else {
+				result["error"] = fmt.Sprintf("%s; %s", result["error"], markerError)
+			}
 		}
 	}
 
