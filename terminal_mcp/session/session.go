@@ -151,6 +151,19 @@ func (sm *Manager) ExecuteCommand(sessionID string, command string, timeout time
 	return sm.ExecuteCommandWithMetadata(sessionID, command, timeout, shell, remoteRaw, captureStderr, trace.Metadata{})
 }
 
+func remoteSessionFailureMessage(sessionID string, session *ShellSession, cause string, timedOut bool) string {
+	if session.Remote.Raw == "" {
+		return ""
+	}
+
+	prefix := "remote persistent shell failed before producing command markers"
+	if timedOut {
+		prefix = "remote persistent shell timed out before producing command markers"
+	}
+
+	return fmt.Sprintf("%s\n\nSession ID: %s\nTarget: %s\nTransport: ssh\nUnderlying error: %s\n\nNo correlated remote command output was received.", prefix, sessionID, session.Remote.Target, cause)
+}
+
 func (sm *Manager) ExecuteCommandWithMetadata(sessionID string, command string, timeout time.Duration, shell string, remoteRaw string, captureStderr bool, metadata trace.Metadata) (*mcp.CallToolResult, error) {
 	metadata = metadata.WithDefaults("persistent_shell", remoteRaw, command)
 	finishedAt := func() string { return time.Now().UTC().Format(time.RFC3339Nano) }
@@ -291,10 +304,16 @@ func (sm *Manager) ExecuteCommandWithMetadata(sessionID string, command string, 
 
 	case err := <-errorChan:
 		sm.closeSessionAfterFailure(sessionID, session)
+		if remoteError := remoteSessionFailureMessage(sessionID, session, err.Error(), false); remoteError != "" {
+			return mcp.NewToolResultError(remoteError), nil
+		}
 		return mcp.NewToolResultError(fmt.Sprintf("Error reading output; closed session %s to prevent stale output from contaminating future commands: %v", sessionID, err)), nil
 
 	case <-ctx.Done():
 		sm.closeSessionAfterFailure(sessionID, session)
+		if remoteError := remoteSessionFailureMessage(sessionID, session, ctx.Err().Error(), true); remoteError != "" {
+			return mcp.NewToolResultError(remoteError), nil
+		}
 		return mcp.NewToolResultError(fmt.Sprintf("Command timeout; closed session %s to prevent stale output from contaminating future commands", sessionID)), nil
 	}
 }

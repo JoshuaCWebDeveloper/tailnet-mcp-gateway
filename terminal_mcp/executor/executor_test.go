@@ -3,6 +3,7 @@ package executor
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"mcp-terminal-server/config"
+	"mcp-terminal-server/remote"
 	"mcp-terminal-server/trace"
 )
 
@@ -169,6 +171,45 @@ func TestExecuteReturnsToolErrorWhenMarkersAreMissing(t *testing.T) {
 	structured := result.StructuredContent.(map[string]interface{})
 	if got := structured["correlated"]; got != false {
 		t.Fatalf("correlated = %v, want false", got)
+	}
+}
+
+func TestRemoteStartupErrorMessageReportsTransportFailure(t *testing.T) {
+	spec := remote.Spec{Raw: "frappe@100.94.211.1", Target: "frappe@100.94.211.1"}
+	message := remoteStartupErrorMessage(spec, errors.New("exit status 255"), "ssh: connect to host 100.94.211.1 port 22: Connection timed out", false)
+
+	for _, want := range []string{
+		"remote connection failed before command execution",
+		"Target: frappe@100.94.211.1",
+		"Transport: ssh",
+		"ssh: connect to host 100.94.211.1 port 22: Connection timed out",
+		"No remote command was executed.",
+	} {
+		if !strings.Contains(message, want) {
+			t.Fatalf("remote startup error missing %q:\n%s", want, message)
+		}
+	}
+	if strings.Contains(message, "MCP invocation markers") {
+		t.Fatalf("remote startup error should not mention MCP markers: %s", message)
+	}
+}
+
+func TestRemoteStartupErrorMessageReportsTimeoutBeforeMarkers(t *testing.T) {
+	spec := remote.Spec{Raw: "frappe@100.94.211.1", Target: "frappe@100.94.211.1"}
+	message := remoteStartupErrorMessage(spec, errors.New("signal: killed"), "", true)
+
+	if !strings.Contains(message, "remote connection timed out before command execution") {
+		t.Fatalf("timeout startup error missing timeout prefix: %s", message)
+	}
+	if !strings.Contains(message, "signal: killed") {
+		t.Fatalf("timeout startup error missing underlying error: %s", message)
+	}
+}
+
+func TestRemoteStartupErrorMessageIgnoresLocalMarkerFailures(t *testing.T) {
+	message := remoteStartupErrorMessage(remote.Spec{}, errors.New("exit status 1"), "", false)
+	if message != "" {
+		t.Fatalf("local command should not be classified as remote startup failure: %s", message)
 	}
 }
 

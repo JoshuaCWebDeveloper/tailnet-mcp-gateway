@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"mcp-terminal-server/config"
+	"mcp-terminal-server/remote"
 	"mcp-terminal-server/trace"
 )
 
@@ -140,6 +141,29 @@ func TestPersistentShellExitClosesSession(t *testing.T) {
 	sm.mu.RUnlock()
 	if exists {
 		t.Fatalf("dead session still exists")
+	}
+}
+
+func TestRemoteSessionFailureMessageReportsRemoteTimeout(t *testing.T) {
+	message := remoteSessionFailureMessage("offline", &ShellSession{Remote: remote.Spec{Raw: "frappe@100.94.211.1", Target: "frappe@100.94.211.1"}}, "context deadline exceeded", true)
+	for _, want := range []string{
+		"remote persistent shell timed out before producing command markers",
+		"Session ID: offline",
+		"Target: frappe@100.94.211.1",
+		"Transport: ssh",
+		"context deadline exceeded",
+		"No correlated remote command output was received.",
+	} {
+		if !strings.Contains(message, want) {
+			t.Fatalf("remote session error missing %q:\n%s", want, message)
+		}
+	}
+}
+
+func TestRemoteSessionFailureMessageIgnoresLocalSessions(t *testing.T) {
+	message := remoteSessionFailureMessage("local", &ShellSession{}, "context deadline exceeded", true)
+	if message != "" {
+		t.Fatalf("local session should not get remote startup error: %s", message)
 	}
 }
 
