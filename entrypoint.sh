@@ -3,6 +3,7 @@ set -euo pipefail
 
 : "${TS_AUTHKEY:?TS_AUTHKEY is required}"
 : "${CONTROL_PLANE_TUNNEL_ID:?CONTROL_PLANE_TUNNEL_ID is required}"
+: "${CONTROL_PLANE_ORGANIZATION_ID:?CONTROL_PLANE_ORGANIZATION_ID is required}"
 : "${CONTROL_PLANE_API_KEY:?CONTROL_PLANE_API_KEY is required}"
 
 TS_HOSTNAME="${TS_HOSTNAME:-openai-terminal-mcp-gateway}"
@@ -46,6 +47,7 @@ tailscale --socket="${TS_SOCKET}" status || true
 echo "Starting OpenAI Secure MCP Tunnel with terminal MCP backend..."
 exec tunnel-client run \
   --control-plane.tunnel-id="${CONTROL_PLANE_TUNNEL_ID}" \
+  --control-plane.organization-id="${CONTROL_PLANE_ORGANIZATION_ID}" \
   --control-plane.api-key="env:CONTROL_PLANE_API_KEY" \
   --health.listen-addr="${TUNNEL_HEALTH_ADDR}" \
   --mcp.command="/usr/local/bin/mcp-terminal-server"

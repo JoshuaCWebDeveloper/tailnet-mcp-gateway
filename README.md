@@ -15,6 +15,7 @@ ssh user@100.x.y.z "df -h"
 - Docker and Docker Compose
 - A Tailscale auth key
 - An OpenAI Secure MCP Tunnel ID
+- The OpenAI organization ID associated with the tunnel
 - An OpenAI API key usable by `tunnel-client run`
 - SSH access from inside the container to any Tailnet machine you want to reach
 
@@ -31,6 +32,7 @@ Edit `.env` and set:
 ```bash
 TS_AUTHKEY=...
 CONTROL_PLANE_TUNNEL_ID=...
+CONTROL_PLANE_ORGANIZATION_ID=...
 CONTROL_PLANE_API_KEY=...
 ```
 
