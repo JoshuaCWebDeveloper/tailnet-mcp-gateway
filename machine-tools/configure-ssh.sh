@@ -119,6 +119,40 @@ if [ -z "${TARGET_HOME}" ]; then
   fi
 fi
 
+# OpenSSH StrictModes also examines the home directory and its ancestors.
+# Do not change ownership of the home directory: Frappe and other applications
+# may deliberately rely on its existing owner and group.
+TARGET_HOME="${TARGET_HOME%/}"
+if [ -z "${TARGET_HOME}" ] || [ ! -d "${TARGET_HOME}" ]; then
+  machine_tools_log "ERROR: target home directory does not exist: ${TARGET_HOME}"
+  exit 1
+fi
+
+# Secure the target user's home without altering its group or other permissions.
+# Group/world write access permits unauthorized manipulation of .ssh.
+
+# Refuse unsafe ancestors rather than silently modifying system-wide directories.
+target_uid="$(id -u "${TARGET_USER}")"
+path="${TARGET_HOME}"
+while :; do
+  path_uid="$(stat -c %u "${path}")"
+  path_mode="$(stat -c %a "${path}")"
+  if [ "${path_uid}" != 0 ] && [ "${path_uid}" != "${target_uid}" ]; then
+    machine_tools_log "ERROR: ${path} is not owned by root or ${TARGET_USER}"
+    exit 1
+  fi
+  if [ "${path}" = "${TARGET_HOME}" ]; then
+    machine_tools_as_root chmod go-w "${path}"
+    path_mode="$(stat -c %a "${path}")"
+  fi
+  if (( (8#${path_mode} & 8#022) != 0 )); then
+    machine_tools_log "ERROR: ${path} is group/world writable; cannot safely configure SSH keys"
+    exit 1
+  fi
+  [ "${path}" = / ] && break
+  path="$(dirname "${path}")"
+done
+
 ssh_dir="${TARGET_HOME}/.ssh"
 authorized_keys="${ssh_dir}/authorized_keys"
 
