@@ -134,6 +134,7 @@ if [ -z "${HOSTNAME}" ]; then
   HOSTNAME="${TARGET}"
 fi
 
+machine_tools_log "Tailscale credential at inject: $(machine_tools_key_fingerprint "${API_KEY}")"
 CONFIGURE_ARGS+=(--tailscale-api-key "${API_KEY}" --tailscale-hostname "${HOSTNAME}")
 for key in "${PUBLIC_KEYS[@]}"; do
   CONFIGURE_ARGS+=(--ssh-public-keys "${key}")
