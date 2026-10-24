@@ -16,3 +16,12 @@ machine_tools_as_root() {
     return 1
   fi
 }
+
+# Prints a non-reversible identifier for comparing a credential across scripts.
+# Never log raw API keys or the HTTP Authorization header.
+machine_tools_key_fingerprint() {
+  local key="$1" digest
+  digest="$(printf '%s' "$key" | sha256sum)"
+  digest="${digest%% *}"
+  printf 'length=%s sha256=%s' "${#key}" "${digest:0:16}"
+}

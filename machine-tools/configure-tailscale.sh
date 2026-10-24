@@ -97,22 +97,32 @@ tailscale_api_url() {
 }
 
 tailscale_api_get() {
-  local path
+  local path response_file http_status result
   path="$1"
-  curl -fsS -u "${API_KEY}:" "$(tailscale_api_url "${path}")"
+  response_file="$(mktemp)"
+  if http_status="$(curl -q -fsS -o "${response_file}" -w '%{http_code}' -u "${API_KEY}:" "$(tailscale_api_url "${path}")")"; then
+    machine_tools_log "Tailscale GET ${path}: HTTP ${http_status}"
+    cat "${response_file}"
+    result=0
+  else
+    result=$?
+    machine_tools_log "ERROR: Tailscale GET ${path}: HTTP ${http_status:-unknown}, curl exit ${result}"
+  fi
+  rm -f "${response_file}"
+  return "${result}"
 }
 
 tailscale_api_delete() {
   local path
   path="$1"
-  curl -fsS -X DELETE -u "${API_KEY}:" "$(tailscale_api_url "${path}")" >/dev/null
+  curl -q -fsS -X DELETE -u "${API_KEY}:" "$(tailscale_api_url "${path}")" >/dev/null
 }
 
 tailscale_api_post_json() {
   local path body
   path="$1"
   body="$2"
-  curl -fsS -X POST \
+  curl -q -fsS -X POST \
     -u "${API_KEY}:" \
     -H 'Content-Type: application/json' \
     --data-binary "${body}" \
@@ -172,8 +182,14 @@ print(key)
 ' <<< "${response}"
 }
 
+machine_tools_log "Tailscale credential at request: $(machine_tools_key_fingerprint "${API_KEY}")"
+machine_tools_log "Tailscale device-list URL: $(tailscale_api_url "/tailnet/${TAILNET}/devices")"
 machine_tools_log "removing existing tailscale machines with hostname=${HOSTNAME}"
-device_ids="$(tailscale_api_get "/tailnet/${TAILNET}/devices" | list_matching_device_ids)"
+if ! device_list="$(tailscale_api_get "/tailnet/${TAILNET}/devices")"; then
+  machine_tools_log "ERROR: Tailscale device listing failed; skipping JSON parsing and device changes"
+  exit 1
+fi
+device_ids="$(printf '%s\n' "${device_list}" | list_matching_device_ids)"
 if [ -n "${device_ids}" ]; then
   while IFS= read -r device_id; do
     [ -n "${device_id}" ] || continue

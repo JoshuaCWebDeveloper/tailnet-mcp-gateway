@@ -82,6 +82,7 @@ done
 
 "${SCRIPT_DIR}/configure-ssh.sh" "${ssh_args[@]}"
 
+machine_tools_log "Tailscale credential at configure: $(machine_tools_key_fingerprint "${API_KEY}")"
 tailscale_args=(--api-key "${API_KEY}")
 if [ -n "${HOSTNAME}" ]; then
   tailscale_args+=(--hostname "${HOSTNAME}")
